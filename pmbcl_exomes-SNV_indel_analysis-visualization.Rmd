@@ -1,0 +1,79 @@
+---
+title: "Analysis of SNV mutations in PMBCL exomes"
+author: "Stacy Hung"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+This script analyzes calls for paired and single tumor samples in the PMBCL exome dataset.
+
+## ##########################
+## Load and process datasets 
+## ##########################
+
+```{r}
+singles.variants <- read.table("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/singles/varscan.singles.vn_overlap.txt", sep = "\t", header = TRUE)
+paired.variants <- read.table("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/paired/snvs.all.intersect.txt", sep = "\t", header = TRUE)
+
+# remove paired samples from unpaired dataset
+singles.variants <- subset(singles.variants, sample!='PA009' & sample!='PA021' & sample!='PA034')
+singles.variants$sample <- factor(singles.variants$sample)
+
+# remove PA012 (normal may be tumor)
+paired.variants <- subset(paired.variants, tumor_id!='PA012')
+paired.variants$tumor_id <- factor(paired.variants$tumor_id)
+```
+
+## #########################
+## Overall study statistics
+## #########################
+```{r}
+# number of somatic variants in paired and unpaired tumors
+
+# number of non-synonymous somatic variants per sample
+
+# total number of protein-altering variants
+```
+
+## ######################################################################
+## Combine singles and paired datasets so they can be analyzed together
+## ######################################################################
+```{r}
+singles.keeps <- c("sample", "chr", "pos", "ref", "alt", "type", "gene", "allele_freq", 
+                   "HGVS_DNA", "HGVS_protein", "effect", "impact", "fun_class", "impact",
+                   "external_id", "transcript_id")
+paired.keeps <- c("tumor_id", "chr", "pos", "ref" , "alt", "type", "gene", "allele_freq_tumor",
+                  "HGVS_DNA", "HGVS_protein", "effect", "impact", "fun_class", "impact",
+                  "external_id", "transcript_id")
+
+singles.variants <- singles.variants[singles.keeps]
+paired.variants <- paired.variants[paired.keeps]
+singles.variants$analysis <- "unpaired"
+paired.variants$analysis <- "paired"
+colnames(paired.variants) <- colnames(singles.variants)
+
+all.variants <- rbind (singles.variants, paired.variants)
+```
+
+## ##############
+## Visualization
+## ##############
+
+```{r}
+# What is the distribution of effects?
+
+# What is the distribution of allele frequencies?
+ggplot(singles.variants, aes(as.numeric(allele_freq))) + 
+  geom_density() + 
+  xlab ("Allele frequency (%)") + 
+  ylab("Density") +
+  ggtitle("Distribution of allele frequencies across unpaired tumor samples")
+
+ggplot(paired.variants, aes(as.numeric(allele_freq_tumor))) + 
+  geom_density() + 
+  xlab ("Allele frequency (%)") + 
+  ylab("Density") +
+  ggtitle("Distribution of allele frequencies across paired tumor samples")
+
+```
