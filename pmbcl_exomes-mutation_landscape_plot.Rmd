@@ -1,0 +1,157 @@
+---
+title: "SNV Heatmap"
+author: "Stacy Hung"
+date: "February 19, 2018"
+output: html_document
+---
+
+This script is used to generate plots for visualizing mutation data for the PMBCL exomes dataset.
+
+## Installation of GenVisR (optional)
+```{r}
+# NB: if you need to install this package, install it using devtools from the github source!!!
+# The bioconductor version of GenVisR is buggy (not compatible with required libraries)
+# Installing GenVisR may also require the installation of the VariantAnnotation pacakge (from bioconductor)
+source("https://bioconductor.org/biocLite.R")
+biocLite("VariantAnnotation")
+library("VariantAnnotation")
+
+install.packages("devtools")
+library(devtools)
+install_github("griffithlab/GenVisR")
+```
+
+## Read in the necessary data
+
+```{r}
+# read in mutation data
+mutations <- read.table("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/singles_and_pairs.snvs_and_indels.somatic_modified_effects.maf", sep = "\t", header = TRUE)
+
+#mutations.singles <- read.table("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/singles.MutSig_input.snvs_and_indels.maf", sep = "\t", header = TRUE)
+
+# load mutation data (MAF - filtering done on VarScan+MuTect+Strelka *plus* silent mutations) - excludes UTR mutations
+#mutations.maf <- read.table("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/pairs.snvs_and_indels.somatic_modified_effects.maf", sep = "\t", header = TRUE)
+
+# load MutSig output (list of significantly mutated genes)
+sig.genes <- read.table("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_output/pairs/pairs.snvs_and_indels.mutsig.sig_genes.txt", sep = "\t", header = TRUE)
+
+# load any metadata associated with the dataset
+metadata <- read.table("/Volumes/shung/projects/PMBCL_exomes/data/gender.txt", sep = "\t", header = TRUE)
+```
+
+## Now subset the data for appropriate visualization
+
+```{r}
+# get significant genes
+sig.genes.list <- subset(sig.genes, sig.genes$p < 0.05)
+
+# filter out silent mutations
+library(dplyr)    # filter
+mutations <- filter(mutations, !Variant_Classification == 'Silent')
+mutations$Variant_Classification <- factor(mutations$Variant_Classification)
+
+# first merge the two datasets
+keeps <- c("gene", "patient", "Variant_Classification", "Chromosome", "Start_Position", "Reference_Allele",
+           "Tumor_Seq_Allele1", "Tumor_Seq_Allele2")
+mutations <- mutations[keeps]
+
+# only focus on significant genes
+mutations.sig <- mutations[mutations$gene %in% sig.genes.list$gene, ]
+mutations.sig$gene <- factor(mutations.sig$gene)
+rm(mutations)
+
+# calculate the End_Position column for maftools maf format (End_Position = length(Reference) - start + 1)
+mutations.sig$End_Position <- nchar(as.character(mutations.sig$Reference_Allele)) + as.numeric(mutations.sig$Start_Position) - 1
+
+# map Variant_Classification to a Variant_Type field (another column we need for maftools)
+# Variant_Type = {INS, DEL, SNP, DNP, TNP, ONP}
+class.to.type <- c("Missense_Mutation"="SNP",
+                   "Nonsense_Mutation"="SNP",
+                   "Splice_Site"="SNP",
+                   "Nonstop_Mutation"="SNP",
+                   "Targeted_Region"="SNP",
+                   "Frame_Shift_Del"="DEL",
+                   "Frame_Shift_Ins"="INS"
+                   )
+mutations.sig$Variant_Type <- revalue(mutations.sig$Variant_Classification, class.to.type)
+
+# write out as plottable maf
+write.table(mutations.sig, "/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/maftools/paired_and_unpaired.snvs_and_indels.sig_genes.maf", sep = "\t", row.names = FALSE, quote = FALSE)
+
+```
+
+## maftools visualization
+```{r}
+source("https://bioconductor.org/biocLite.R")
+biocLite("maftools")
+library(maftools)
+
+mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/maftools/paired_and_unpaired.snvs_and_indels.sig_genes.maf", gisticAllLesionsFile = "/Volumes/shung/projects/PMBCL_exomes/gistic/output/segments_filtered_200_fdr_0.05/segments_filtered_200_fdr_0.05.all_lesions.conf_90.txt", gisticAmpGenesFile = "/Volumes/shung/projects/PMBCL_exomes/gistic/output/segments_filtered_200_fdr_0.05/segments_filtered_200_fdr_0.05.amp_genes.conf_90.txt", gisticDelGenesFile = "/Volumes/shung/projects/PMBCL_exomes/gistic/output/segments_filtered_200_fdr_0.05/segments_filtered_200_fdr_0.05.del_genes.conf_90.txt")
+
+# Load mutation data into MAF object
+mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/maftools/paired_and_unpaired.snvs_and_indels.sig_genes.AA_change.maf")
+
+# MAF Summary Plot
+plotmafSummary(maf = mutations.maf, rmOutlier = TRUE, dashboard = TRUE)
+
+# Oncoplot
+oncoplot(maf = mutations.maf, 
+         genes = c("STAT6","GNA13","ITPKB","ACTB","TNFAIP3","IL4R","NFKBIE","CIITA", "CD58", "PTPN1", "IRF8")
+         )
+
+# Lollipop plots for amino acid changes - issues with retrieving protein position
+gna13.lpop = lollipopPlot(maf = mutations.maf, 
+                          gene = 'GNA13', 
+                          AACol = 'AAChange', 
+                          showMutationRate = TRUE, 
+                          domainLabelSize = 3, 
+                          defaultYaxis = FALSE)
+```
+
+## GISTIC visualization
+
+```{r}
+all.lesions <- "/Volumes/shung/projects/PMBCL_exomes/gistic/output/default_param/gistic_segments.all_lesions.conf_90.txt"
+amp.genes <- "/Volumes/shung/projects/PMBCL_exomes/gistic/output/default_param/gistic_segments.amp_genes.conf_90.txt"
+del.genes <- "/Volumes/shung/projects/PMBCL_exomes/gistic/output/default_param/gistic_segments.del_genes.conf_90.txt"
+
+mutations.gistic <- readGistic(gisticAllLesionsFile = all.lesions, gisticAmpGenesFile = amp.genes, gisticDelGenesFile = del.genes, isTCGA = FALSE)
+
+#source("/Volumes/shung/projects/PMBCL_exomes/gistic/scripts/gisticChromPlot.R")
+pdf(file="~/share/projects/shung/pmbcl_exomes/maftools/gisticChromPlot.pdf", width=12, height=8)
+
+gcp <- gisticChromPlot(gistic = mutations.gistic, markBands = "all")
+
+dev.off()
+
+```
+
+## Waterfall plot
+
+```{r}
+# load the GenVisR package
+library("GenVisR")
+set.seed(426)
+
+mutations.plot <- mutations.sig
+colnames(mutations.plot)[c(1,2)]=c("Hugo_Symbol", "Tumor_Sample_Barcode")
+
+waterfall(mutations.plot, 
+          mainRecurCutoff = 0, 
+          mainGrid = TRUE,
+          plotMutBurden = TRUE, 
+          fileType = "MAF", 
+          coverageSpace = 90697072,
+          plot_proportions = TRUE,
+          proportions_type = "TvTi",
+          mainDropMut = TRUE,
+          rmvSilent = TRUE
+          )
+#clinData = gender,
+#mainXlabel = TRUE,
+```
+
+## 
+
+
+

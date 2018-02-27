@@ -1,0 +1,178 @@
+---
+title: "Generation of MAF files for MutSigCV analysis"
+author: "Stacy Hung"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+MutSigCV is a tool that identifies genes that are significantly mutated in cancer genomes,
+using a model with mutational covariates.
+
+There are 3 input files required: (1) mutation file (e.g. MAF format), (2) coverage table (can be compensated for, if this information is not available) (3) covariates file (provided).
+
+The mutation file is a tab-delimited file listing mutations and requiring the named columns:
+1. gene     hugo symbol
+2. patient  sample identifier
+3. effect   one of "nonsilent" (protein-altering), "silent" (synonymous), or "noncoding" (3' or 5' UTR)
+4. categ    (can be derived from Variant_Classification, Reference_Allele, and Tumor_Seq_Allele1 columns)
+            - Variant_Classification
+            - Reference_Allele
+            - Tumor_Seq_Allele1
+
+## Load unpaired results (VarScan) for SNVs and indels that have been filtered for somatic variants, but NOT filtered for effect (so silent mutations will still be included)
+
+```{r}
+# laod unpaired variant calls
+singles.calls <- read.table("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/singles/varscan.singles.somatic_and_no_effect_filter.vn_overlap_high_confidence.txt", sep = "\t", header = TRUE, fill = TRUE)
+
+# filter for effect - *IMPORTANT* - MutSigCV does not allow for UTR mutations or intronic mutations
+library(dplyr)    
+singles.calls.no_UTR <- filter(singles.calls, !effect=='UTR_3_PRIME' & !effect=='UTR_5_PRIME' & !effect=='INTRON' & !effect=='INTRAGENIC')
+# refactor the effect levels (to exclude ones that are no longer applicable)
+singles.calls.no_UTR$effect <- factor(singles.calls.no_UTR$effect)
+rm(singles.calls)
+
+# map SnpEffect values to equivalent MAF Variant_Classification categories
+# map the actual patient id using the tumor id since the normal has a separate id
+# Note: we will arbitrarily map all "FRAME_SHIFT" mutations to a Frame_Shift_Del since there isn't an easy way to tell otherwise if the frameshift is an insertion or deletion
+snpeff_effect.to.MAF_VarClass <- c(
+                            "CODON_DELETION"="Frame_Shift_Del",
+                            "CODON_INSERTION"="Frame_Shift_Ins",
+                            "NON_SYNONYMOUS_CODING"="Missense_Mutation",
+                            "NON_SYNONYMOUS_START"="Missense_Mutation",
+                            "SPLICE_SITE_ACCEPTOR"="Splice_Site",
+                            "SPLICE_SITE_DONOR"="Splice_Site",
+                            "SPLICE_SITE_REGION"="Splice_Site",
+                            "START_GAINED"="Translation_Start_Site",
+                            "START_LOST"="Missense_Mutation",
+                            "STOP_GAINED"="Nonsense_Mutation",
+                            "STOP_LOST"="Nonstop_Mutation",
+                            "CODON_CHANGE_PLUS_CODON_INSERTION"="Frame_Shift_Ins",
+                            "CODON_CHANGE_PLUS_CODON_DELETION"="Frame_Shift_Del",
+                            "SYNONYMOUS_CODING"="Silent",
+                            "SYNONYMOUS_STOP"="Silent",
+                            "EXON"="Targeted_Region",
+                            "FRAME_SHIFT"="Frame_Shift_Del"
+                            )
+library(plyr)
+singles.calls.no_UTR$effect <- revalue(singles.calls.no_UTR$effect, snpeff_effect.to.MAF_VarClass)
+
+# keep only the columns that are relevant to MAF generation
+keeps <- c("gene", "sample", "effect", "ref", "alt", "gt", "impact", "fun_class", 
+           "transcript_id", "chr", "pos")
+singles.calls.no_UTR <- singles.calls.no_UTR[keeps]
+
+# rename samples column to match MAF format
+library(data.table)
+setnames(singles.calls.no_UTR, "sample", "patient")
+setnames(singles.calls.no_UTR, "effect", "Variant_Classification")
+setnames(singles.calls.no_UTR, "ref", "Reference_Allele")
+setnames(singles.calls.no_UTR, "chr", "Chromosome")
+setnames(singles.calls.no_UTR, "pos", "Start_Position")
+
+singles.calls.no_UTR$Chromosome <- gsub("^chr", "", singles.calls.no_UTR$Chromosome)
+
+# reorder columns:
+keeps <- c("gene", "patient", "Variant_Classification", "Chromosome", 
+           "Start_Position", "Reference_Allele", "alt", "gt",
+           "impact", "fun_class", "transcript_id")
+singles.calls.no_UTR <- singles.calls.no_UTR[keeps]
+
+# fill in Tumor_Seq_Allele1 and Tumor_Seq_Allele2 columns using gt column
+# if gt = "0/1", fill in Tumor_Seq_Allele1 as reference allele, otherwise (gt = 1/1), fill with alterante allele
+singles.calls.no_UTR$Tumor_Seq_Allele1 <- if_else(singles.calls.no_UTR$gt == "0/1", 
+                                              singles.calls.no_UTR$Reference_Allele, 
+                                              singles.calls.no_UTR$alt)
+singles.calls.no_UTR$Tumor_Seq_Allele2 <- singles.calls.no_UTR$alt
+singles.calls.no_UTR$alt <- NULL
+singles.calls.no_UTR$gt <- NULL
+
+# fill in gene name as "UNKNOWN" when missing (these are likely mutations that fall just outside the gene)
+singles.calls.no_UTR$gene <- as.character(singles.calls.no_UTR$gene)
+singles.calls.no_UTR$gene[singles.calls.no_UTR$gene==""] <- "UNKNOWN"
+singles.calls.no_UTR$gene <- as.factor(singles.calls.no_UTR$gene)
+
+write.table(singles.calls.no_UTR, "/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/singles.snvs_and_indels.somatic_modified_effects.maf", sep = "\t", quote = FALSE, row.names = FALSE)
+
+```
+
+## Load paired results (MuTect + Strelka + VarScan) for SNVs + indels that have been filtered for somatic variants, but NOT filtered for effect (so silent mutations will still be included)
+
+```{r}
+# load paired variant calls
+paired.calls <- read.table("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/paired/snvs.all.intersect-somatic_and_no_effect_filter.txt", sep = "\t", header = TRUE, fill = TRUE)
+
+# filter for effect - *IMPORTANT* - MutSigCV does not allow 5' or 3' UTR or intronic mutations
+library(dplyr)    
+paired.calls.no_UTR <- filter(paired.calls, !effect=='UTR_3_PRIME' & !effect=='UTR_5_PRIME' & !effect=='INTRON' & !effect=='INTRAGENIC')
+# refactor the effect levels (to exclude ones that are no longer applicable)
+paired.calls.no_UTR$effect <- factor(paired.calls.no_UTR$effect)
+rm(paired.calls)
+              
+# map SnpEffect values to equivalent MAF Variant_Classification categories
+# map the actual patient id using the tumor id since the normal has a separate id
+# Note: we will arbitrarily map all "FRAME_SHIFT" mutations to a Frame_Shift_Del since there isn't an easy way to tell otherwise if the frameshift is an insertion or deletion
+snpeff_effect.to.MAF_VarClass <- c(
+                            "CODON_DELETION"="Frame_Shift_Del",
+                            "CODON_INSERTION"="Frame_Shift_Ins",
+                            "NON_SYNONYMOUS_CODING"="Missense_Mutation",
+                            "NON_SYNONYMOUS_START"="Missense_Mutation",
+                            "SPLICE_SITE_ACCEPTOR"="Splice_Site",
+                            "SPLICE_SITE_DONOR"="Splice_Site",
+                            "SPLICE_SITE_REGION"="Splice_Site",
+                            "START_GAINED"="Translation_Start_Site",
+                            "START_LOST"="Missense_Mutation",
+                            "STOP_GAINED"="Nonsense_Mutation",
+                            "STOP_LOST"="Nonstop_Mutation",
+                            "CODON_CHANGE_PLUS_CODON_INSERTION"="Frame_Shift_Ins",
+                            "CODON_CHANGE_PLUS_CODON_DELETION"="Frame_Shift_Del",
+                            "SYNONYMOUS_CODING"="Silent",
+                            "SYNONYMOUS_STOP"="Silent",
+                            "EXON"="Targeted_Region",
+                            "FRAME_SHIFT"="Frame_Shift_Del"
+                            )
+library(plyr)
+paired.calls.no_UTR$effect <- revalue(paired.calls.no_UTR$effect, snpeff_effect.to.MAF_VarClass)
+
+# keep only the columns that are relevant to MAF generation
+keeps <- c("gene", "tumor_id", "effect", "ref", "alt", "gt_tumor", "impact", "fun_class", 
+           "transcript_id", "chr", "pos")
+paired.calls.no_UTR <- paired.calls.no_UTR[keeps]
+
+# rename samples column to match MAF format
+library(data.table)
+setnames(paired.calls.no_UTR, "tumor_id", "patient")
+setnames(paired.calls.no_UTR, "effect", "Variant_Classification")
+setnames(paired.calls.no_UTR, "ref", "Reference_Allele")
+setnames(paired.calls.no_UTR, "chr", "Chromosome")
+setnames(paired.calls.no_UTR, "pos", "Start_Position")
+#setnames(paired.calls.no_UTR, "coding", "effect")
+
+# remove "chr" (to meet requirements for Chromosome column)
+paired.calls.no_UTR$Chromosome <- gsub("^chr", "", paired.calls.no_UTR$Chromosome)
+
+# reorder columns:
+keeps <- c("gene", "patient", "Variant_Classification", "Chromosome", 
+           "Start_Position", "Reference_Allele", "alt", "gt_tumor",
+           "impact", "fun_class", "transcript_id")
+paired.calls.no_UTR <- paired.calls.no_UTR[keeps]
+
+# fill in Tumor_Seq_Allele1 and Tumor_Seq_Allele2 columns using gt column
+# if gt = "0/1", fill in Tumor_Seq_Allele1 as reference allele, otherwise (gt = 1/1), fill with alterante allele
+paired.calls.no_UTR$Tumor_Seq_Allele1 <- if_else(paired.calls.no_UTR$gt == "0/1", 
+                                              paired.calls.no_UTR$Reference_Allele, 
+                                              paired.calls.no_UTR$alt)
+paired.calls.no_UTR$Tumor_Seq_Allele2 <- paired.calls.no_UTR$alt
+paired.calls.no_UTR$alt <- NULL
+paired.calls.no_UTR$gt <- NULL
+
+# fill in gene name as "UNKNOWN" when missing (these are likely mutations that fall just outside the gene)
+paired.calls.no_UTR$gene <- as.character(paired.calls.no_UTR$gene)
+paired.calls.no_UTR$gene[paired.calls.no_UTR$gene==""] <- "UNKNOWN"
+paired.calls.no_UTR$gene <- as.factor(paired.calls.no_UTR$gene)
+
+write.table(paired.calls.no_UTR, "/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/pairs.snvs_and_indels.somatic_modified_effects.maf", sep = "\t", quote = FALSE, row.names = FALSE)
+
+```
+
