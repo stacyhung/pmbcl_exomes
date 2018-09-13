@@ -1,0 +1,408 @@
+---
+title: "mutation_frequency"
+author: "Stacy Hung"
+date: "January 10, 2017"
+output: html_document
+---
+
+This script analyzes frequency information on mutations across various datasets (frequency representing
+the proportion of cases per gene that are mutated).
+
+## Get frequency of mutations in the PMBCL MutSig dataset (n=94)
+
+```{r}
+# we want to make sure our dataset is comparable to other datasets of interest, so we should make sure to:
+#   1. EXCLUDE 5'UTR and 3'UTR mutations
+#   2. EXCLUDE silent mutations
+paired.mutations <- read.table("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/paired/snvs.all.intersect.txt", sep = "\t", header = TRUE, fill = TRUE)
+singles.mutations <- read.table("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/singles/PMBCL_exomes-singles_SNVs_indels-AF_filtered.txt", sep = "\t", header = TRUE, fill = TRUE)
+
+# remove UTR mutations (for the sake of consistency throughout the paper)
+paired.mutations <- paired.mutations[!(paired.mutations$effect == "UTR_3_PRIME") & 
+                                       !(paired.mutations$effect == "UTR_5_PRIME"), ]
+singles.mutations <- singles.mutations[!(singles.mutations$effect == "UTR_3_PRIME") & 
+                                       !(singles.mutations$effect == "UTR_5_PRIME"), ]
+# refactor effect levels
+paired.mutations$effect <- factor(paired.mutations$effect)
+singles.mutations$effect <- factor(singles.mutations$effect)
+
+# extract fields for generating frequency data - patient and gene
+# only keep unique patient / gene combinations (since we only want to know IF gene X is mutated in patient Y)
+keeps <- c("tumor_id", "gene")
+paired.mutations <- unique(paired.mutations[keeps])
+keeps <- c("sample", "gene")
+singles.mutations <- unique(singles.mutations[keeps])
+colnames(paired.mutations) <- c("patient", "gene")
+colnames(singles.mutations) <- c("patient", "gene")
+
+# combine singles and paired mutations into one data frame
+all.mutations <- unique(rbind(paired.mutations, singles.mutations))
+all.mutations$gene <- factor(all.mutations$gene)
+
+rm(paired.mutations)
+rm(singles.mutations)
+
+# filter for significant genes
+sig.genes <- c("SOCS1", "ITPKB", "STAT6", "GNA13", "NFKBIE", "PTPN1", "ZNF217", "IL4R", "ACTB", "HIST1H3D", "CD58", "IRF8", "SGPP1", "TNFAIP3", "GCSAM", "JUNB", "ZFP36L1", "RGS1", "HIST1H2BC", "HIST1H1C", "JAK1", "MS4A1", "SRSF1", "HIST1H1B", "EZH2", "IFNL3", "GDF11", "KLF9", "IL1RAPL2", "SERPINB3", "IGLJ2", "VMP1", "MYC", "LHFPL3", "TSPAN19", "IRF2BP2", "DDX3X", "CIITA", "IRF4", "CXCR5", "EPHA7", "IL13RA1", "CISH", "SPINK1", "TRAF3", "HIST1H4E", "HIST1H4J", "MAGEC2", "IRX2", "FPGT")
+all.mutations.sig <- all.mutations[all.mutations$gene %in% sig.genes, ]
+all.mutations.sig$gene <- factor(all.mutations.sig$gene)
+
+# or for genes that are significant in HL (Tiacci et al.)
+hl.sig_genes <- c("SOCS1", "STAT6", "B2M", "GNA13", "XPO1", "NFKBIE", "IGLL5", "ITPKB", "NUP214", "TP53", "KIAA1671", "GRM7", "ZCCHC11", "ITPR3", "AKAP6", "WDFY3", "SETD5", "PRUNE2", "NCOR1", "DGKB", "TNIP1", "COL6A3", "JAK1", "PTPN1", "STAT3", "STAT5B")
+pmbcl.mutations.tiacci_sig <- all.mutations[all.mutations$gene %in% hl.sig_genes, ]
+pmbcl.mutations.tiacci_sig$gene <- factor(pmbcl.mutations.tiacci_sig$gene)
+pmbcl.mutation_counts.tiacci_sig <- table(pmbcl.mutations.tiacci_sig$gene)
+
+gene.mutation_counts.sig <- table(all.mutations.sig$gene)
+gene.mutation_counts <- table(all.mutations$gene)
+pairs.gene.mutation_counts <- table(paired.mutations$gene)
+
+# write the data out
+write.table(gene.mutation_counts.sig, "/Volumes/shung/projects/PMBCL_exomes/frequency_analysis/pmbcl-sig.gene_counts.txt", row.names = FALSE, quote = FALSE, sep = "\t")
+write.table(gene.mutation_counts, "/Volumes/shung/projects/PMBCL_exomes/frequency_analysis/pmbcl-all.gene_counts.txt", row.names = FALSE, quote = FALSE, sep = "\t")
+write.table(pairs.gene.mutation_counts, "/Volumes/shung/projects/PMBCL_exomes/frequency_analysis/pmbcl-pairs.gene_counts.txt", row.names = FALSE, quote = FALSE)
+write.table(pmbcl.mutation_counts.tiacci_sig, "/Volumes/shung/projects/PMBCL_exomes/frequency_analysis/pmbcl-gene_counts-tiacci_sig_genes.txt", row.names = FALSE, quote = FALSE, sep = "\t")
+```
+
+## Get frequency of mutations in DLBCL Reddy dataset (n=948)
+
+Note that data has been processed by Chris Rushton from the Morin Lab (Strelka predictions run for 985 exomes).  All exomes were aligned against the reference genome GRCh37. Strelka was applied to predict SNVs and indels.
+
+In order to properly compare the PMBCL and Reddy datasets, the data needs to be normalized:
+* Variant classifications allowed (intersect): Splice_Region, Splice_Site, Missense_Mutation, Nonsense_Mutation, Nonstop_mutation, Frame_Shift_Del, Frame_Shift_Ins
+* Minimum variant read depth: 10 (PMBCL exomes); this is equivalent to the t_alt_count column in the Reddy data
+
+NB: the patient identifier is located in the Tumor_Sample_Barcode column of the Reddy data
+
+```{r}
+reddy.strelka <- read.table ("/Volumes/shung/projects/PMBCL_exomes/landscape_articles/DLBCL_Reddy_2017/strelka_Morin/reddy.strelka.pass.pmbcl_sig_genes.txt", sep = "\t", header = TRUE, quote = "")
+
+# filter for variant classes 
+# filter for effect (include UTR mutations, but not silent mutations)
+reddy.strelka <- unique(rbind(
+              reddy.strelka[grep("Splice_Region", reddy.strelka$Variant_Classification), ],
+              reddy.strelka[grep("Splice_Site", reddy.strelka$Variant_Classification), ],
+              reddy.strelka[grep("Missense_Mutation", reddy.strelka$Variant_Classification), ],
+              reddy.strelka[grep("Nonsense_Mutation", reddy.strelka$Variant_Classification), ],
+              reddy.strelka[grep("Nonstop_mutation", reddy.strelka$Variant_Classification), ],
+              reddy.strelka[grep("Frame_Shift_Del", reddy.strelka$Variant_Classification), ],
+              reddy.strelka[grep("Frame_Shift_Ins", reddy.strelka$Variant_Classification), ]
+              ))
+
+#              reddy.strelka[grep("3'UTR", reddy.strelka$Variant_Classification), ],
+#              reddy.strelka[grep("5'UTR", reddy.strelka$Variant_Classification), ],
+
+# only look at genes that are significant in PMBCL
+reddy.strelka.pmbcl_sig <- reddy.strelka[reddy.strelka$Hugo_Symbol %in% sig.genes, ]
+reddy.strelka.pmbcl_sig$Hugo_Symbol <- factor(reddy.strelka.pmbcl_sig$Hugo_Symbol)
+
+# now filter for variant read support in the tumor (same cutoff used in PMBCL cohort)
+reddy.strelka.pmbcl_sig <- subset(reddy.strelka.pmbcl_sig, reddy.strelka.pmbcl_sig$t_alt_count >= 10)
+
+# reduce to patient and gene since we only want to know IF a gene is mutated in a patient (not how many times it is mutated in a patient)
+keeps <- c("Tumor_Sample_Barcode", "Hugo_Symbol")
+reddy.strelka.pmbcl_sig <- unique(reddy.strelka.pmbcl_sig[keeps])
+colnames(reddy.strelka.pmbcl_sig) <- c("patient", "gene")
+
+reddy.gene.pmbcl_sig.mutation_counts <- table(reddy.strelka.pmbcl_sig$gene)
+
+# write the data out
+write.table(reddy.strelka.pmbcl_sig, "/Volumes/shung/projects/PMBCL_exomes/frequency_analysis/reddy-pmbcl_sig_genes-mutations.txt", row.names = FALSE, sep = "\t", quote = FALSE)
+write.table(reddy.gene.pmbcl_sig.mutation_counts, "/Volumes/shung/projects/PMBCL_exomes/frequency_analysis/reddy-pmbcl_sig_genes-gene_counts.txt", row.names = FALSE, sep = "\t", quote = FALSE)
+```
+
+## Get normalized gene counts from HL (Tiacci et al.) and PMBCL datasets based on HL thresholds
+
+Thresholds from HL dataset (Tiacci et al.) (n=34):
+- no UTR mutations
+- VAF >= 20% (for some reason, there are mutations with AF = 0% )
+- only mutations in coding regions or conserved splice sites
+
+```{r}
+hl.mutations <- read.table("/Volumes/shung/projects/PMBCL_exomes/landscape_articles/Tiacci-Blood-2017/tiacci-somatic_mutations_WES.txt", sep = "\t", header = TRUE)
+
+# filter for allele frequency (greater than 10%)
+hl.mutations <- subset(hl.mutations, hl.mutations$tumor_combined_variant_freq >= 10)
+
+# extract gene and patient to get proportion of patients with a mutation
+keeps <- c("Case", "Gene")
+hl.mutations <- unique(hl.mutations[keeps])
+colnames(hl.mutations) <- c("patient", "gene")
+
+tiacci.gene.mutation_counts <- table(hl.mutations$gene)
+
+# write the data out
+write.table(tiacci.gene.mutation_counts, "/Volumes/shung/projects/PMBCL_exomes/frequency_analysis/tiacci-gene.mutation_counts.txt", sep = "\t", row.names = FALSE, quote = FALSE)
+```
+
+## Generate frequency tables
+
+```{r}
+# for significant genes in PMBCL:
+pmbcl.freq <- read.table("/Volumes/shung/projects/PMBCL_exomes/frequency_analysis/pmbcl-sig.gene_counts.txt", sep = "\t", header = TRUE)
+dlbcl.freq <- read.table("/Volumes/shung/projects/PMBCL_exomes/frequency_analysis/reddy-pmbcl_sig_genes-gene_counts.txt", sep = "\t", header = TRUE)
+
+NUM_EXOMES_PMBCL = 94
+NUM_EXOMES_DLBCL = 985
+
+# calculate proportion of cases that are mutated
+pmbcl.freq$proportion <- pmbcl.freq$Freq / NUM_EXOMES_PMBCL * 100
+dlbcl.freq$proportion <- dlbcl.freq$Freq / NUM_EXOMES_DLBCL * 100
+
+# label the datasets
+pmbcl.freq$dataset <- "Our study (n=94)"
+dlbcl.freq$dataset <- "Reddy et al. (n=985)"
+
+# for signficant genes in HL:
+hl.freq <- read.table("/Volumes/shung/projects/PMBCL_exomes/frequency_analysis/hl-tiacci_sig.gene_counts.txt", sep = "\t", header = TRUE)
+pmbcl.freq <- read.table("/Volumes/shung/projects/PMBCL_exomes/frequency_analysis/pmbcl-gene_counts-tiacci_sig_genes.txt", sep = "\t", header = TRUE)
+
+# calculate proportion of cases that are mutated (this has already been calculated for HL)
+pmbcl.freq$proportion <- pmbcl.freq$Freq / NUM_EXOMES_PMBCL * 100
+
+hl.freq$dataset <- "Tiacci et al. (n=34)"
+pmbcl.freq$dataset <- "Our study (n=94)"
+
+# normalized columns so they can be combined for plotting
+keeps <- c("Var1", "proportion", "dataset")
+pmbcl.freq <- unique(pmbcl.freq[keeps])
+colnames(pmbcl.freq) <- c("gene", "proportion", "dataset")
+
+write.table(hl.freq, "/Volumes/shung/projects/PMBCL_exomes/frequency_analysis/hl.freq.tiacci_genes.txt", sep = "\t", row.names = FALSE, quote = FALSE)
+write.table(pmbcl.freq, "/Volumes/shung/projects/PMBCL_exomes/frequency_analysis/pmbcl.freq.tiacci_genes.txt", sep = "\t", row.names = FALSE, quote = FALSE)
+
+```
+
+
+## Frequency plots
+
+```{r}
+# process the data in Excel and load back into R
+
+# PMBCL (paired) vs. PMBCL (paired+unpaired) vs. DLBCL (Reddy) for PMBCL driver genes (missing data from DLBCL)
+freq.data <- read.table("/Volumes/shung/projects/PMBCL_exomes/frequency_analysis/pmbcl.vs.reddy_dlbcl.txt", sep = "\t", header = TRUE)
+# DLBCL (Reddy) vs. PMBCL for DLBCL driver genes
+freq.data2 <- read.table("/Volumes/shung/projects/PMBCL_exomes/frequency_analysis/reddy_dlbcl_v_pmbcl.txt", sep = "\t", header = TRUE)
+# DLBCL (Reddy) vs. DLBCL (Shipp) vs. PMBCL for overlapping driver genes in DLBCL
+freq.data3 <- read.table("/Volumes/shung/projects/PMBCL_exomes/frequency_analysis/dlbcl_vs_pmbcl.txt", sep = "\t", header = TRUE)
+# DLBCL (Reddy, ABC) vs. DLBCL (Reddy, GCB) vs. PMBCL (for DLBCL driver genes)
+freq.data4 <- read.table("/Volumes/shung/projects/PMBCL_exomes/frequency_analysis/reddy_COO_v_pmbcl.txt", sep = "\t", header = TRUE)
+# HL (Tiacci) vs. PMBCL for HL driver genes
+freq.data.hl <- read.table("/Volumes/shung/projects/PMBCL_exomes/frequency_analysis/hl_tiacci.vs.pmbcl.txt", sep = "\t", header = TRUE)
+```
+
+## Barplot frequencies (datasets side by side) 
+
+```{r}
+library(ggplot2)
+library(gridExtra)
+library(grid)
+library(lattice)
+```
+
+## A) Mutation frequencies of PMBCL MutSig genes compared to DLBCL (mutations obtained from strelka on Reddy dataset)
+
+```{r}
+# Get additional DLBCL (non-driver genes) from /projects/mdata_dart/Analysis/Exome/StrelkaPipeline/
+# Frequency plot: our dataset (pairs+singles) and the Reddy et al. dataset re-analyzed with Strelka by the Morin Lab
+freq.data.pmbcl_V_dlbcl <- rbind(pmbcl.freq, dlbcl.freq)
+colnames(freq.data.pmbcl_V_dlbcl) <- c("gene", "freq", "proportion", "dataset")
+  
+# reorder genes by increasing frequency in PMBCL dataset
+freq.data.pmbcl_V_dlbcl$gene <- factor(freq.data.pmbcl_V_dlbcl$gene, levels = freq.data.pmbcl_V_dlbcl$gene[order(pmbcl.freq$proportion)])
+
+plot.pmbcl_V_dlbcl <- ggplot(data=freq.data.pmbcl_V_dlbcl, aes(x = gene, y = proportion, fill=dataset)) +
+  geom_bar(stat="identity", position=position_dodge(), width = 0.8) +
+  ylab("Cases mutated (%)") + xlab("") +
+  theme_bw() +
+  theme(legend.position="bottom") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size=14),
+        axis.text.y  = element_text(size=14), 
+        axis.title.x = element_text(size = 18), 
+        axis.title.y = element_text(size = 18), 
+        legend.text = element_text(size=14), 
+        plot.margin = unit(c(1,1,1,1), "cm")) +
+  scale_fill_manual(values = c("steelblue4","firebrick1"),
+                    breaks = c("Our study (n=94)", 
+                               "Reddy et al. (n=985)"),
+                    labels = c("Our study (n=94)",
+                               "Reddy et al. (n=985)"),
+                    name = "")
+```
+
+## ? Mutation frequencies of PMBCL MutSig genes (paired, full) vs. overlapping DLBCL (Reddy et al.) -> 16 genes
+
+```{r}
+freq.data$dataset <- factor(freq.data$dataset, levels = c("Our study (pairs + singles) (n=95)", "Our study (pairs) (n=21)", "Reddy et. al (n=1001)"))
+
+# reorder genes by increasing frequency in the full PMBCL dataset
+freq.data.pmbcl <- subset(freq.data, freq.data$dataset == "Our study (pairs + singles) (n=95)")
+freq.data$gene <- factor(freq.data$gene, levels = freq.data$gene[order(freq.data.pmbcl$proportion)])
+
+plot.pmbcl <- ggplot(data=freq.data, aes(x = gene, y = proportion, fill=dataset)) +
+  geom_bar(stat="identity", position=position_dodge(), width = 0.8) +
+  ylab("Cases mutated (%)") + xlab("") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size=14),
+        axis.text.y  = element_text(size=14), 
+        axis.title.x = element_text(size = 18), 
+        axis.title.y = element_text(size = 18), 
+        legend.text = element_text(size=14), 
+        plot.margin = unit(c(1,0,0,3), "cm")) +
+  scale_fill_manual(values = c("steelblue4", "steelblue1","firebrick1"),
+                    breaks = c("Our study (pairs + singles) (n=95)", 
+                               "Our study (pairs) (n=21)", 
+                               "Reddy et. al (n=1001)"),
+                    labels = c("Our study - paired and unpaired tumors (n=95)",
+                               "Our study - paired tumors (n=21)", 
+                               "Reddy et. al. (n=1001)"),
+                    name = "")
+```
+
+## ? Mutation frequencies of PMBCL MutSig genes (full) vs. overlapping DLBCL (Reddy et al.) -> 16 genes
+
+```{r}
+freq.data2$dataset <- factor(freq.data2$dataset, levels = c("Our study (n=94)", "Reddy et al (n=1001)"))
+
+# reorder by value of PMBCL frequency
+freq.data2.pmbcl <- subset(freq.data2, freq.data2$dataset == "Our study (n=94)")
+freq.data2$gene <- factor(freq.data2$gene, levels = freq.data2$gene[order(freq.data2.pmbcl$proportion)])
+# alternatively, reorder by value of DLBCL frequency
+#freq.data2.dlbcl <- subset(freq.data2, freq.data2$dataset == "Reddy et al (n=1001)")
+#freq.data2$gene <- factor(freq.data2$gene, levels = freq.data2$gene[order(freq.data2.dlbcl$proportion)])
+
+plot2.pmbcl <- ggplot(data=freq.data2, aes(x = gene, y = proportion, fill=dataset)) +
+  geom_bar(stat="identity", position=position_dodge(), width = 0.8) +
+  ylab("Cases mutated (%)") + xlab("") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size=14),
+        axis.text.y  = element_text(size=14), 
+        axis.title.x = element_text(size = 18), 
+        axis.title.y = element_text(size = 18), 
+        legend.text = element_text(size=14), 
+        plot.margin = unit(c(1,0,0,3), "cm")) +
+  scale_fill_manual(values = c("steelblue4","firebrick1"),
+                    breaks = c("Our study (n=94)", 
+                               "Reddy et al (n=1001)"),
+                    labels = c("Our study (n=94)",
+                               "Reddy et al (n=1001)"),
+                    name = "")
+```
+
+
+# Frequency plot comparing our dataset (all samples) to two DLBCL datasets (Reddy and Shipp)
+
+```{r}
+NUM_EXOMES_PMBCL = 94
+
+# load dataset for DLBCL proportions
+freq.dlbcl <- read.table("/Volumes/shung/projects/PMBCL_exomes/frequency_analysis/dlbcl_shipp_reddy/dlbcl-reddy_and_shipp-gene_proportions.txt", sep = "\t", header = TRUE)
+
+# combine with PMBCL dataset of proprtions (based on exclusion of UTRs) corresponding to the 58 DLBCL sig. genes
+sig.genes <- read.table("/Volumes/shung/projects/PMBCL_exomes/frequency_analysis/dlbcl_shipp_reddy/DLBCL-Reddy+Shipp-sig_genes.txt")
+pmbcl.genes_counts <- read.table("/Volumes/shung/projects/PMBCL_exomes/frequency_analysis/pmbcl-all.gene_counts.txt", sep = "\t", header = TRUE)
+pmbcl.gene_counts.dlbcl_sig <- pmbcl.genes_counts[pmbcl.genes_counts$Var1 %in% sig.genes$V1, ]
+colnames(pmbcl.gene_counts.dlbcl_sig) <- c("gene", "freq")
+pmbcl.gene_counts.dlbcl_sig$gene <- factor(pmbcl.gene_counts.dlbcl_sig$gene)
+pmbcl.gene_counts.dlbcl_sig$proportion <- pmbcl.gene_counts.dlbcl_sig$freq / NUM_EXOMES_PMBCL*100
+pmbcl.gene_counts.dlbcl_sig$dataset <- "Our study (n=94)"
+keeps <- c("gene", "proportion", "dataset")
+pmbcl.gene_counts.dlbcl_sig <- unique(pmbcl.gene_counts.dlbcl_sig[keeps])
+freq.data <- rbind(pmbcl.gene_counts.dlbcl_sig, freq.dlbcl)
+
+write.table(freq.data, "/Volumes/shung/projects/PMBCL_exomes/frequency_analysis/dlbcl_shipp_reddy/PMBCL_DLBCL_Shipp_Reddy-gene_proportions-Shipp+Reddy_genes.txt", sep = "\t", row.names = FALSE, quote = FALSE)
+
+# since there a couple missing genes with no mutations in the Shipp + Reddy gene list, we need to add these manually to the PMBCL dataset (as 0 percent).
+freq.data <- read.table("/Volumes/shung/projects/PMBCL_exomes/frequency_analysis/dlbcl_shipp_reddy/PMBCL_DLBCL_Shipp_Reddy-gene_proportions_complete-Shipp+Reddy_genes.txt", sep = "\t", header = TRUE)
+freq.data.pmbcl <- subset(freq.data, freq.data$dataset == "Our study (n=94)")
+
+# order bars by specified dataset:
+freq.data$dataset <- factor(freq.data$dataset, levels = c("Our study (n=94)", "Reddy et al. (n=1001)", "Chapuy, Shipp (n=304)"))
+
+# keep order specified in input data
+freq.data$gene <- factor(freq.data$gene, levels = freq.data.pmbcl$gene)
+
+# reorder by value of PMBCL frequency
+#freq.data$gene <- factor(freq.data$gene, levels = freq.data$gene[order(pmbcl.gene_counts.dlbcl_sig$proportion)])
+
+plot.dlbcl_V_pmbcl <- ggplot(data=freq.data, aes(x = gene, y = proportion, fill=dataset)) +
+  geom_bar(stat="identity", position=position_dodge(), width = 0.8) +
+  ylab("Cases mutated (%)") + xlab("") +
+  theme_bw() +
+  theme(legend.position="bottom") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size=14),
+        axis.text.y  = element_text(size=14), 
+        axis.title.x = element_text(size = 18), 
+        axis.title.y = element_text(size = 18), 
+        legend.text = element_text(size=14), 
+        plot.margin = unit(c(1,1,1,1), "cm")) +
+  scale_fill_manual(values = c("steelblue4", "firebrick1", "orange"),
+                    breaks = c("Our study (n=94)", 
+                               "Reddy et al. (n=1001)",
+                               "Chapuy, Shipp (n=304)"),
+                    labels = c("Our study (n=94)",
+                               "Reddy et al. (n=1001)",
+                               "Chapuy, Shipp (n=304)"),
+                    name = "")
+```
+
+## Frequency plot comparing our dataset (all samples) to Reddy's dataset, split into ABC + GCB categories
+
+```{r}
+freq.data4$dataset <- factor(freq.data4$dataset, levels = c("Our study (n=94)", "Reddy et al - ABC (n=272)", "Reddy et al - GCB (n=298)"))
+
+# reorder by value of PMBCL frequency
+freq.data4.pmbcl <- subset(freq.data4, freq.data4$dataset == "Our study (n=94)")
+freq.data4$gene <- factor(freq.data4$gene, levels = freq.data4$gene[order(freq.data4.pmbcl$proportion)])
+
+plot4.pmbcl <- ggplot(data=freq.data4, aes(x = gene, y = proportion, fill=dataset)) +
+  geom_bar(stat="identity", position=position_dodge(), width = 0.8) +
+  theme_bw() +
+  ylab("Cases mutated (%)") + xlab("") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size=14),
+        axis.text.y  = element_text(size=14), 
+        axis.title.x = element_text(size = 18), 
+        axis.title.y = element_text(size = 18), 
+        legend.text = element_text(size=14), 
+        plot.margin = unit(c(1,0,0,3), "cm")) +
+  scale_fill_manual(values = c("steelblue4", "deepskyblue", "darkorange"),
+                    breaks = c("Our study (n=94)", 
+                               "Reddy et al - ABC (n=272)",
+                               "Reddy et al - GCB (n=298)"),
+                    labels = c("Our study (n=94)",
+                               "Reddy et al - ABC (n=272)",
+                               "Reddy et al - GCB (n=298)"),
+                    name = "")  
+```
+
+
+## Frequency plot comparing our dataset (all samples) to the HL Tiacci et al. dataset
+
+```{r}
+#freq.data.hl$dataset <- factor(freq.data.hl$dataset, levels = c("Our study (n=94)", "Tiacci et al (n=34)"))
+#freq.data.hl <- rbind(pmbcl.freq, hl.freq)
+freq.data.hl <- read.table("/Volumes/shung/projects/PMBCL_exomes/frequency_analysis/hl_tiacci/hl_vs_pmbcl-tiacci_sig_genes.gene_proportions.txt", sep = "\t", header = TRUE)
+
+# keep order specified in input data
+freq.data.hl$gene <- factor(freq.data.hl$gene, levels = freq.data.hl$gene)
+
+# reorder genes by increasing frequency in HL dataset
+#freq.data.hl$gene <- factor(freq.data.hl$gene, levels = freq.data.hl$gene[order(pmbcl.freq$proportion)])
+
+plot.hl_v_pmbcl <- ggplot(data=freq.data.hl, aes(x = gene, y = proportion, fill=dataset)) +
+  geom_bar(stat="identity", position=position_dodge(), width = 0.8) +
+  ylab("Cases mutated (%)") + xlab("") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size=14),
+        axis.text.y  = element_text(size=14), 
+        axis.title.x = element_text(size = 18), 
+        axis.title.y = element_text(size = 18), 
+        legend.text = element_text(size=14), 
+        plot.margin = unit(c(1,1,1,1), "cm")) +
+  scale_fill_manual(values = c("steelblue4","firebrick1"),
+                    breaks = c("Our study (n=94)", 
+                               "Tiacci et al. (n=34)"),
+                    labels = c("Our study (n=94)",
+                               "Tiacci et al. (n=34)"),
+                    name = "")
+
+
+```
