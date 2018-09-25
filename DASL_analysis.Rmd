@@ -1,0 +1,600 @@
+---
+title: "PMBCL exome analysis"
+author: "Stacy Hung"
+Adate: "February 26, 2017"
+output: html_document
+---
+  
+This script is used to analyze the DASL dataset generated for 120 PMBCL samples.
+
+A note about BeadArray technology: combined in parallel on either a rectangular chip (BeadChip) or a matrix of 8 by 12 hexagonal arrays (Sentrix Array Matrix or SAM); the beadchip is further divided into strips on the surface known as sections, with each section producing a different image when scanned by BeadScan - these images (and associated text files) comprise the raw data for a beadarray analysis. *Note that BeadStudio/GenomeStudio removes outliers > 3 median absolute deviations (MADs) from median prior to calculating summary values.
+
+To obtain the correct annotations, the organism should be specified as Human and the annotation revision number is based on Humanv4.
+
+== The PMBCL DASL consists of 120 arrays (samples) processed on the Illumina Human HT-12 version 4 chip ==
+
+## Load required R packages
+
+```{r}
+source("http://www.bioconductor.org/biocLite.R")
+biocLite(c("beadarray", "lumi", "limma", "GEOquery", "illuminaHumanv1.db", "beadarrayExampleData",
+           "illuminaHumanv2.db", "illuminaHumanv3.db", "illuminaHumanv4.db", "BeadArrayUseCases",
+           "GOstats", "GenomicRanges", "Biostrings"))
+```
+
+## Analysis of summary data from BeadStudio / GenomeStudio using limma
+
+Files of interest:
+  * Sample probe profile (required) - text file containing non-normalized summary values (output by BeadStudio)
+      - each row is a different probe in the experiment
+      - columns give different measurements for the gene, for each sample:
+          > AVG_Signal      summarized expression level
+          > Detection Pval  probability of a gene being detected above background level
+          > BEAD_STDERR     standard error of bead replicates
+          > NARRAYS
+          > ARRAY_STDEV
+          > Avg_NBEADS
+          
+  * Control probe profile (recommended) - text file containing summarized data for controls on each array
+      - useful for diagnostic and calibration purposes
+      
+It is NOT recommended to use Illumina's background correction step (subtracts intensities of negative control probes from intensities of regular probes)
+
+## Read in summary-level data
+
+```{r}
+library(limma)
+
+maqc <- read.ilmn(
+  files = "/Volumes/shung/projects/PMBCL_exomes/DASL/CS-MOT11864_Dasl-2R8_120smpls/dasl_gex_data/Dasl-2R8-120smpls_nonorm_nobkgd/Sample_Probe_Profile.txt", 
+  ctrlfiles = "/Volumes/shung/projects/PMBCL_exomes/DASL/CS-MOT11864_Dasl-2R8_120smpls/dasl_gex_data/Dasl-2R8-120smpls_nonorm_nobkgd/Control_Probe_Profile.txt", 
+  probeid = "PROBE_ID", 
+  annotation = c("SYMBOL", "TargetID"), 
+  other.columns = c("AVG_Signal", "Detection Pval", "Avg_NBEADS")
+)
+```
+
+## Step 1. Pre-processing: background correction, normalization, log2-transformation, and quality assessment
+
+(1) Estimate the proportion of expressed probes by comparing empirical intensity distribution of the negative control probes with that of the regular probes.  A mixture model is fitted to the data from each array to infer the intensity distribution of expressed probes and estimate the expressed proportion.
+
+(2) Apply a normal-exponential convolution model to background correct and normalize the data - for Illumina gene expression data, this approach has been shown to offer improved results in terms of bias-variance trade-off and reduced false-positives.
+
+(3) Remove probes that not expressed (fall below certain p-value threshold for detection)
+
+```{r}
+library(ggplot2)
+library(gridExtra)
+
+# get the proportion of probes that are expressed in each sample
+proportion <- propexpr(maqc)
+proportion
+
+# plot proportions as a barplot to see distribution across samples
+prop.df <- as.data.frame(proportion)
+prop.df$patient <- row.names(prop.df)
+
+ggplot(data=prop.df, aes(x = reorder(patient, -proportion), y = proportion)) +
+  geom_bar(stat="identity", fill="grey") +
+  theme_minimal() + theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  xlab("Patient") + ylab("Proportion of probes expressed")
+
+# Background correction and normalization using neqc - fits convolution model to intensities from each sample, then applies quantile normalization and log2 transformation to standardize the signal between samples.
+
+# Apply the neqc function to calibrate the background level, normalize and transform the intensities from each sample - this function is also an option in the beadarray package's normaliseIllumina function
+maqc.norm <- neqc(maqc)
+
+# Filter out probes that are not expressed (i.e. fall below certain p-value threshold for detection)
+
+# The detection score, or detection p-value is a standard measure for Illumina expression experiments, and can be viewed as an empirical estimate of the p-value for the null hypothesis that a particular probe is not expressed
+
+# here the p-value can be accessed through either "Detection" or "Detection Pval" - both give the same results
+expressed <- rowSums(maqc.norm$other$Detection < 0.05) >= 3 # expressed in at least 3 arrays
+maqc.norm <- maqc.norm[expressed, ]
+
+# Before: 29377
+# After removal of unexpressed probes: 27446
+
+# examine distribution of "regular" and negative control probes BEFORE normalization
+
+regular.nonnorm <- as.data.frame(as.table(log2(maqc$E[maqc$genes$Status == "regular", ])))
+colnames(regular.nonnorm) <- c("probe", "patient", "log2_intensity")
+neg.nonnorm <- as.data.frame(as.table(log2(maqc$E[maqc$genes$Status == "NEGATIVE", ])))
+colnames(neg.nonnorm) <- c("probe", "patient", "log2_intensity")
+
+p1 <- ggplot(regular.nonnorm, aes(x=patient, y=log2_intensity)) + 
+  geom_boxplot(outlier.size=NA) +
+  theme(axis.ticks.x = element_blank(),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank()) +
+  ylab("log2 (intensity)") + xlab("")
+  
+p2 <- ggplot(neg.nonnorm, aes(x=patient, y=log2_intensity)) + 
+  geom_boxplot(outlier.size=NA) +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  ylab("log2 (intensity)") + xlab("patient")
+
+grid.arrange(p1, p2, nrow = 2)
+
+# and compare to distribution of regular probes after normalization
+
+regular.norm <- as.data.frame(as.table(maqc.norm$E))
+colnames(regular.norm) <- c("probe", "patient", "log2_intensity")
+  
+ggplot(regular.norm, aes(x=patient, y=log2_intensity)) + 
+  geom_boxplot(outlier.size=NA) +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  ylab("log2 (intensity)") + xlab("patient")
+
+```
+
+## Step 2. Dealing with batch effects and outliers
+
+Multidimensional scaling (MDS) assess sample similarity based on pair-wise distances between samples.  This dimension reduction technique uses the top 500 most variable genes between each pair of samples to calculate a matrix of Euclidean distances, which are used to generate a 2D , plot.  Ideally, samples should separate based on biological variables (e.g. gender, RNA source, treatment, etc.), but often technical effects (e.g. samples processed together on the same BeadChip) may dominate.  Principal components analysis (PCA) is another dimension reduction technique frequently applied to microarray data.
+
+```{r}
+library(ggfortify)
+library(ggplot2)
+
+# we want to map the plate for MDS visualization to see if the arrays cluster by plate, so write out the column names (patient ids) that need to be mapped:
+
+#write.table(colnames(maqc.norm), "/Volumes/shung/projects/PMBCL_exomes/DASL/CS-MOT11864_Dasl-2R8_120smpls/dasl_gex_data/Dasl-2R8-120smpls_nonorm_nobkgd/patients_from_neqc_norm_data.txt", row.names = FALSE, quote = FALSE)
+
+# after manually mapping (i.e. in Excel) the plate numbers to the patient ids, read in this data for utilization
+plate.info <- read.table("/Volumes/shung/projects/PMBCL_exomes/DASL/CS-MOT11864_Dasl-2R8_120smpls/dasl_gex_data/Dasl-2R8-120smpls_nonorm_nobkgd/patient_to_plate_mappings.txt", sep = "\t", header = TRUE)
+
+# look at MDS plot to see if samples cluster together by RNA source
+plotMDS(maqc.norm$E, labels = plate.info$plate)
+
+col <- as.numeric(plate.info$plate)
+mds <- plotMDS(maqc.norm$E, top=200, col=col)
+
+# use plate number as labels
+plotMDS(mds, col = col, labels = plate.info$plate)
+
+# PCA plot
+pca.data <- prcomp(t(maqc.norm$E))
+
+# calculate the variance between the components
+pca.data_perc = round(100*pca.data$sdev^2/sum(pca.data$sdev^2),1)
+
+# create a data frame with just PC1, PC2, conditions and sample names
+pca.data.df <- data.frame(PC1 = pca.data$x[,1],
+                          PC2 = pca.data$x[,2],
+                          sample = colnames(maqc.norm),
+                          plate = as.character(plate.info$plate))
+
+ggplot(pca.data.df, aes(PC1, PC2, color = plate)) +
+  geom_point(size = 3) +
+  geom_text(aes(label = ifelse(PC1 > 200, as.character(sample),'')), hjust = 1.2, vjust = -0.3)
+
+# remove outliers based on visual inspection (appear as outliers in both MDS and PCA):
+
+excluded <- c("95-12514", "00-20098", "91-32362", "84-30108", 
+              "90-37635", "01-27374", "81-15319")
+maqc.norm <- maqc.norm[, !(colnames(maqc.norm) %in% excluded)]
+
+# option to remove batch effects using the removeBatchEffects in the limma package
+#removeBatchEffect
+```
+
+## Annotation of probes with gene names and filtering based on probe annotation
+
+```{r}
+library(illuminaHumanv4.db)
+library(ggplot2)
+library(reshape2)
+
+illuminaHumanv4()
+# convert probe expression to gene expression
+probeIDs  <- rownames(maqc.norm)
+
+# retrieve quality information from the Human v4 annotation package and verify that probes annotated as 'bad' or 'no match' generally have lower signal; exclude such probes from further analysis
+#ids <- as.character(rownames(maqc.norm))
+qual <- unlist(mget(probeIDs, illuminaHumanv4PROBEQUALITY, ifnotfound = NA))
+#AvgSignal <- rowMeans(maqc.norm$E)
+
+# plot distribution of average signal of each probe against the different quality cateogories
+# create a data frame that combines quality categories with average signal
+
+#avgsignal.qual.df <- melt(data.frame(AvgSignal,qual))
+#avgsignal.qual.df <- avgsignal.qual.df[,c(1,3)]
+#colnames(avgsignal.qual.df) <- c("quality", "avg_signal")
+
+#p <- ggplot(avgsignal.qual.df, aes(quality, avg_signal)) + 
+#  geom_boxplot() +
+#  xlab("quality category") +
+#  ylab("average signal")
+
+# investigate IDs that have high expression despite being classed as "bad" (about 20% of bad probes)
+#queryIDs <- names(which(qual == "Bad" & AvgSignal > 12))
+#bad_ids1 <- unlist(mget(queryIDs, illuminaHumanv4REPEATMASK))
+#bad_ids2 <- unlist(mget(queryIDs, illuminaHumanv4SECONDMATCHES))
+
+# now remove no match and bad probes and probes that are annotated as NA
+rem <- qual == "No match" | qual == "Bad" | is.na(qual)
+maqc.norm.filt <- maqc.norm[!rem, ]
+
+# get updated annotation for downstream filtering
+probeIDs  <- rownames(maqc.norm.filt)
+geneNames <- mget (probeIDs, illuminaHumanv4GENENAME, ifnotfound = NA)
+symbols <- mget (probeIDs, illuminaHumanv4SYMBOL, ifnotfound = NA)
+anno <- cbind(GeneSymbol = as.character(symbols), GeneName = as.character(geneNames))
+
+# print out normalized, filtered expression data for future use
+write.table(maqc.norm.filt, "/Volumes/shung/projects/PMBCL_exomes/DASL/data/DASL-expression.norm.filtered.txt", sep = "\t", quote = FALSE)
+# print out gene symbols that map to the expression data
+write.table(data.frame(matrix(unlist(unique(symbols)), byrow = TRUE)), "/Volumes/shung/projects/PMBCL_exomes/DASL/analysis/symbols-maqc.norm.filt.txt", quote = FALSE, row.names = FALSE)
+
+```
+
+## Expression of driver genes
+
+```{r}
+library(ggplot2)
+library(reshape2)
+library(tidyr)
+library(data.table)
+library(reshape2)
+
+# read in list of signficantly mutated genes based on MutSig
+#sig.genes <- read.table("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_output/pairs/ensembl_ids_with_coverage_data_v3/sig.genes.no_orfs.txt")
+#sig.genes <- as.vector(sig.genes$V1)
+
+# or get list of genes that are mutated in the paired analysis
+pairs.genes <- read.table("/Volumes/shung/projects/PMBCL_exomes/XSeq/data/pairs.mutated_genes.txt", header = FALSE)
+pairs.genes <- as.vector(pairs.genes$V1)
+
+# define row names to be the gene symbols (obtained from illumina annotation package)
+rownames(maqc.norm.filt) <- symbols
+# extract expression data for just the driver genes
+#expr.sig.genes <- maqc.norm.filt[(row.names(maqc.norm.filt) %in% sig.genes), ]
+#expr.sig.genes.df <- as.data.frame(t(expr.sig.genes$E)) # convert expression to data frame
+# remove genes from the list that don't have a mapping in the expression data
+#remove <- c ("NFKBIE", "CIITA", "HIST1H4J", "FPGT", "IFNL3", "TSPAN19")
+#sig.genes.expr <-  sig.genes [! sig.genes %in% remove]
+# convert from wide to long
+#expr.wide <- melt(expr.sig.genes.df, measure.vars = sig.genes.expr, variable.name = "gene", value.name = "expr")
+
+# extract expression data for mutated genes
+#expr.pair.genes <- maqc.norm.filt[(row.names(maqc.norm.filt) %in% pairs.genes), ]
+#expr.pair.genes.df <- as.data.frame(t(expr.pair.genes$E))
+# get unique list of genes that are expressed AND in the paired analysis
+#pairs.genes.expr <- unique(colnames(expr.pair.genes.df))
+#expr.wide <- expr.pair.genes.df
+#expr.wide$patient <- row.names(expr.wide) # patient ids are lost here, but having row numbers is fine
+# convert from wide to long (so that expression can be aggregated by gene)
+#expr.long <- gather(expr.pair.genes.df, gene, expr, RBFOX1:ZZEF1)
+# now collapse probes for the same genes
+#pair.expr.avg <- aggregate(. ~ gene, data = expr.wide, mean)
+
+# convert expression data from wide to long so that expression can be aggregated on gene name
+expr.long <- melt(t(maqc.norm.filt$E))
+colnames(expr.long) <- c("patient", "gene", "expr")
+# we just want *one* expression value per patient-gene relationship
+expr.avg <- aggregate(.~patient+gene, data = expr.long, mean)
+# and convert back to wide (columns are genes, rows are patients)
+expr.avg.wide <- dcast(expr.avg, patient ~ gene, value.var = "expr")
+
+# print out expression data for reading into xseq
+write.table(expr.avg.wide, "/Volumes/shung/projects/PMBCL_exomes/XSeq/expression/expr.patient_by_gene.txt", sep = "\t", quote = FALSE, row.names = TRUE, col.names = TRUE)
+
+# boxplots of expression for the driver genes
+ggplot(expr.wide) + 
+  geom_boxplot(aes(x = reorder(expr.wide$gene, expr, median), y = expr)) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  xlab("") + ylab("log2 normalized expression")
+
+```
+
+## Differential expression analysis - mutated vs. non-mutated patients for significant genes
+
+```{r}
+library(limma)
+library(R.utils)
+library(Biobase)
+
+# read in processed expression data (rows are transcripts), columns are patients
+expr.mat <- read.table("/Volumes/shung/projects/PMBCL_exomes/DASL/analysis/DASL-expression.norm.filtered.txt", sep = "\t", header = TRUE, row.names = 1)
+
+# how many genes have multiple mappings?
+probe.matches <- as.data.frame(table(expr.mat$SYMBOL))
+probe.multiple_matches <- subset(probe.matches, probe.matches$Freq > 1)
+
+# only look at genes that have a single probe set
+expr.mat <- expr.mat[! (expr.mat$SYMBOL %in% probe.multiple_matches$Var1), ]
+expr.mat$SYMBOL <- factor(expr.mat$SYMBOL)
+
+# now we can use gene names as row names (since they are now unique)
+rownames(expr.mat) <- expr.mat$SYMBOL
+
+# read in patients that should be removed, and patient ids to use for exome cases
+patients.to_remove <- scan(file = "/Volumes/shung/projects/PMBCL_exomes/DASL/data/patients_to_remove.txt", what = 'character')
+patients.exomes <- scan(file = "/Volumes/shung/projects/PMBCL_exomes/DASL/data/patient_ids.exomes.txt", what = 'character')
+
+# remove patients that do not have exomes
+expr.exomes <- expr.mat[ , !(names(expr.mat) %in% patients.to_remove)]
+# also remove extra gene columns
+drops <- c("SYMBOL", "TargetID")
+expr.exomes <- expr.exomes[ , !(names(expr.exomes) %in% drops)]
+# rename res-ids (which start with with an "X" and have a dot instead of dash due to R constraints)
+colnames(expr.exomes) <- patients.exomes
+
+# finally, remove patient that doesn't have mutation data (to match dimensions of design matrix)
+drops <- c("PA012")
+expr.exomes <- expr.exomes[, !(names(expr.exomes) %in% drops)]
+
+# convert the expression data into an ExpressionSet object
+eset.exomes <- ExpressionSet(assayData = as.matrix(expr.exomes))
+
+# load data that can be used for design matrix
+design.data <- read.table("/Volumes/shung/projects/PMBCL_exomes/DASL/data/design-clinical+mutation_data.txt", sep = "\t", header = TRUE, fill = TRUE)
+row.names(design.data) <- design.data$sample_id
+
+# create design matrix that includes all genes, and each column is a gene (0=not-mutated; 1=mutated)
+targets <- design.data[ ,c(25:75)]
+```
+
+# find if there are any differentially expressed genes based on the given contrast
+
+```{r}
+# remove genes that are mutated in less than 3 samples
+targets <- targets[, colSums(targets) > 2]
+
+# define contrasts (e.g. JAK-STAT mutated patients vs. non-mutated patients)
+# JAK-STAT pathway: IL4R, SOCS1, STAT6, PTPN1, IL2RG, IL13RA1, JAK1, JAK2, JAK3, CISH, PTPN6, INPP5D, PTPN11
+f <- paste(targets$IL4R, targets$SOCS1, targets$STAT6, targets$PTPN1, targets$IL13RA1, targets$JAK1, targets$CISH, sep = ".")
+f <- paste("mutated", targets$PTPN1, sep = ".")
+f <- factor(f)
+design <- model.matrix(~0+f)
+colnames(design) <- levels(f)
+# fit the linear model (idea: fit the systematic part of the data to distiguish it from noise)
+fit <- lmFit(eset.exomes, design)
+# Specify contrast matrix (what we want to compare)
+cont.matrix <- makeContrasts(mutant_V_wt="mutated.1-mutated.0", levels=design)
+# extract linear model fit for the contrasts
+fit2 <- contrasts.fit(fit, cont.matrix)
+# eBayes represents Empirical Bayes Statistics for differential expression; it computes moderated t-statistics for each individual contrast
+glm <- eBayes(fit2)
+
+testResults <- decideTests(glm, method = "nestedF", adjust.method = "BH", p.value = 0.1, lfc = log2(1.5))
+# remove rows (transcripts) that are not signficantly different under any condition
+testResults.summarized <- testResults[rowSums(testResults[,-1]) != 0,]
+
+summary(testResults)
+
+# write the results to output
+write.table(testResults, "/Volumes/shung/projects/PMBCL_exomes/DASL/analysis/TestResults.nestedF.MutSig.3+_patients.txt", sep = "\t", quote = FALSE)
+
+```
+
+## differentially expressed genes based on specific contrasts:
+
+```{r}
+#design <- model.matrix(~0 + targets$SOCS1 + targets$CISH + targets$STAT6)
+design <- model.matrix(~0 + targets)
+#fit <- lmFit(eset.test, design)
+fit <- lmFit(eset.exomes, design)
+glm <- eBayes(fit)
+topTable(glm, number = 2)
+```
+
+## Examine clustering of expression profiles
+
+```{r}
+library(RColorBrewer)
+library(ComplexHeatmap)
+library(circlize)
+
+# complex heatmap
+set.seed(123)
+
+# use gene symbols instead of probe names
+rownames(maqc.norm.filt) <- symbols
+
+# apply k-means clustering to identify the specified number of clusters
+
+# cluster based on top 100 highly expressed genes
+select <- order(rowMeans(maqc.norm.filt$E), decreasing=T)[1:100]
+Heatmap(maqc.norm.filt$E[select,], 
+        cluster_columns = TRUE, 
+        cluster_rows = TRUE, 
+        show_row_names = TRUE,
+        show_heatmap_legend = FALSE,
+        km = 5, 
+        gap = unit(5, "mm")
+        )
+
+# aggregate data by average expression per gene
+expr.sig.genes.avg <- t(sapply(by(expr.sig.genes$E, rownames(expr.sig.genes$E), colMeans), identity))
+
+# cluster based on MutSig genes - need to collapse duplicates (e.g. ACTB)
+Heatmap(expr.sig.genes.avg, 
+        name = "log2 expr",
+        cluster_columns = TRUE, 
+        cluster_rows = TRUE, 
+        show_row_names = TRUE,
+        show_column_names = FALSE,
+        km = 4,
+        gap = unit(3, "mm")
+        )
+```
+
+## Combine mutation data (oncoprint) with expression (complexheatmap)
+
+```{r}
+# download file from cBioPortal (Ras-Raf-MEK-Erk/JNK signalling pathway in Lung Adenocarcinoma Carcinoma)
+mat <- read.table("/Volumes/shung/projects/PMBCL_exomes/DASL/cbioportal_example/alterations_across_samples_v2.txt",
+                  header = TRUE, stringsAsFactors = FALSE, sep = "\t")
+mat[is.na(mat)] <- ""
+rownames(mat) <- mat[, 3]
+mat <- mat[, -c(1:4)]
+mat <- t(as.matrix(mat))
+
+# remove annotation for AA change next to mutation type (three types: MUT, CNA - AMP / HOMODEL)
+mat <- gsub("MUT: [A-Za-z0-9*_,]+;", "MUT;", mat)
+mat <- gsub("CNA: AMP;", "AMP;", mat)
+mat <- gsub("CNA: HOMDEL;", "HOMDEL;", mat)
+mat <- gsub("; ", ";", mat)
+
+write.table(mat, "/Volumes/shung/projects/PMBCL_exomes/DASL/cbioportal_example/alterations_across_samples_v3.txt", sep = "\t", row.names = TRUE, quote = FALSE)
+# define how to add graphs that correspond to different alterations
+
+alter_fun = list(
+    background = function(x, y, w, h) {
+        grid.rect(x, y, w-unit(0.5, "mm"), h-unit(0.5, "mm"), gp = gpar(fill = "#CCCCCC", col = NA))
+    },
+    AMP = function(x, y, w, h) {
+        grid.rect(x, y, w-unit(0.5, "mm"), h-unit(0.5, "mm"), gp = gpar(fill = "red", col = NA))
+    },
+    HOMDEL = function(x, y, w, h) {
+        grid.rect(x, y, w-unit(0.5, "mm"), h-unit(0.5, "mm"), gp = gpar(fill = "blue", col = NA))
+    },
+    MUT = function(x, y, w, h) {
+        grid.rect(x, y, w-unit(0.5, "mm"), h*0.33, gp = gpar(fill = "#008000", col = NA))
+    }
+)
+
+# colours for different alterations
+col = c("AMP" = "red", "HOMDEL" = "blue", "MUT" = "#008000")
+
+oncoPrint(mat, get_type = function(x) strsplit(x, ";")[[1]],
+    alter_fun = alter_fun, col = col, 
+    column_title = "OncoPrint for TCGA Lung Adenocarcinoma, genes in Ras Raf MEK JNK signalling",
+    heatmap_legend_param = list(title = "Alternations", at = c("AMP", "HOMDEL", "MUT"), 
+        labels = c("Amplification", "Deep deletion", "Mutation")))
+
+oncoPrint(mat, alter)
+```
+
+## Enhanced Oncoprint
+
+```{r}
+# use the same dataset as before
+# apply additional filtering: remove genes where < 10% of patients have mutations and remove patients which have mutations in less than 5% of the genes
+
+#l1 = apply(mat, 1, function(x) sum(!grepl("^\\s*$", x))/length(x) > 0.1)
+l2 = apply(mat, 2, function(x) sum(!grepl("^\\s*$", x))/length(x) > 0.05)
+mat = mat[, l2]
+
+# attach biological functions annotated by GO (obtained from MSigDB)
+gene_set = strsplit(readLines("/Volumes/shung/projects/PMBCL_exomes/DASL/cbioportal_example/c5.bp.v6.1.symbols.gmt"), "\t")
+names(gene_set) = sapply(gene_set, "[", 1)
+gene_set = lapply(gene_set, "[", -(1:2))
+
+# mat_gs is a binary matrix which represents whether the gene has the corresponding biological function. In order to reduce the amount of GO terms, only these terms having more than 3 genes annotated are kept.
+
+mat_gs = matrix(nrow = nrow(mat), ncol = length(gene_set))
+colnames(mat_gs) = names(gene_set)
+rownames(mat_gs) = rownames(mat)
+for(i in seq_along(gene_set)) {
+    mat_gs[, i] = rownames(mat) %in% gene_set[[i]] + 0
+}
+mat_gs = mat_gs[, colSums(mat_gs) > 10, drop = FALSE]
+
+# Clinical information can be added to the OncoPrint as column annotations. The TCGA2STAT package is used to retrieve clinical information directly from TCGA.
+
+anno_df = readRDS("/Volumes/shung/projects/PMBCL_exomes/DASL/cbioportal_example/clinical_data.rds")
+
+col = c("MUT" = "#008000", "AMP" = "red", "HOMDEL" = "blue")
+alter_fun = list(
+    background = function(x, y, w, h) {
+        grid.rect(x, y, w-unit(0.5, "mm"), h-unit(0.5, "mm"), gp = gpar(fill = "#CCCCCC", col = NA))
+    },
+    HOMDEL = function(x, y, w, h) {
+        grid.rect(x, y, w-unit(0.5, "mm"), h-unit(0.5, "mm"), gp = gpar(fill = col["HOMDEL"], col = NA))
+    },
+    AMP = function(x, y, w, h) {
+        grid.rect(x, y, w-unit(0.5, "mm"), h-unit(0.5, "mm"), gp = gpar(fill = col["AMP"], col = NA))
+    },
+    MUT = function(x, y, w, h) {
+        grid.rect(x, y, w-unit(0.5, "mm"), h*0.33, gp = gpar(fill = col["MUT"], col = NA))
+    }
+)
+
+# Genes are split into two groups based on the amplification rate across patients. The variable amp contains labels for genes indicating which group they are in. amp is converted to a factor to control the order of two row-slices on the plot.
+amp = ifelse(apply(mat, 1, function(x) sum(grepl("AMP", x))/length(x) > 0.1), "high AMP events", "low AMP events")
+amp = factor(amp, levels = c("low AMP events", "high AMP events"))
+
+# column annotations which contain clinical data are defined by ha. There are two simple annotations which are gender and stage and one complex age annotation which is represented as points.
+
+gender = anno_df[, "gender"]
+yearstobirth = as.numeric(anno_df[, "yearstobirth"])
+pathologicstage = anno_df[, "pathologicstage"]
+ha = HeatmapAnnotation(gender = gender, stage = pathologicstage,
+    age = anno_points(yearstobirth, ylim = c(0, max(yearstobirth, na.rm = TRUE)), axis = TRUE),
+    col = list(gender = c("male" = "red", "female" = "blue"),
+               stage = c("stage i" = "#FF0000", "stage ia" = "#FF6060", "stage ib" = "#FFB0B0", 
+                         "stage iia" = "#60FF60", "stage iib" = "#B0FFB0",
+                         "stage iiia" = "#6060FF", "stage iiib" = "#B0B0FF",
+                         "stage iv" = "#FFFF00")),
+    annotation_height = unit(c(5, 5, 15), "mm"),
+    annotation_legend_param = list(gender = list(title = "Gender"),
+                                   stage = list(title = "Stage"))
+)
+
+ht = oncoPrint(mat, get_type = function(x) gsub(":.*$", "", strsplit(x, ";")[[1]]),
+    alter_fun = alter_fun, col = col, 
+    column_title = "OncoPrint for recurrently mutated genes in Lung Adenocarcinoma",
+    heatmap_legend_param = list(title = "Alterations", at = c("AMP", "HOMDEL", "MUT"), 
+        labels = c("Amplification", "Deep deletion", "Mutation")), split = amp,
+    bottom_annotation = ha)
+
+# For the matrix of biological functions, column names are added as a column annotation using text rotated by 45 degrees.
+
+ha_cn = HeatmapAnnotation(cn = anno_text(colnames(mat_gs), rot = -45, just = "left", 
+    offset = unit(1, "npc") - unit(1, "mm"), gp = gpar(fontsize = 8)), annotation_height = unit(6, "cm"))
+
+# Now the heatmap for the binary matrix can be added to the OncoPrint.
+
+ht_list = ht + Heatmap(mat_gs, col = c("0" = "white", "1" = "purple"), 
+    rect_gp = gpar(col = "grey"), show_row_names = FALSE, cluster_columns = TRUE, 
+    show_column_dend = FALSE, bottom_annotation = ha_cn, show_column_names = FALSE, 
+    show_heatmap_legend = FALSE, width = unit(15, "cm"), column_title = "Map to Gene Ontology (BP)")
+
+# Finally the whole plot is drawn and customizations are applied to add the labels for the annotations afterwards.
+
+draw(ht_list, row_sub_title_side = "left")
+decorate_annotation("gender", {
+    grid.text("Gender", x = unit(-2, "mm"), just = "right")
+})
+decorate_annotation("stage", {
+    grid.text("Stage", x = unit(-2, "mm"), just = "right")
+})
+decorate_annotation("age", {
+    grid.text("Age", x = unit(-10, "mm"), just = "right")
+})
+
+```
+
+# Enhanced Oncoprint for the PMBCL exomes
+```{r}
+library(ComplexHeatmap)
+
+# read in mutation data (rows are genes, columns are patients) - values correspond to the type(s) of mutation present in each gene / patient and can be one or more of: MUT, AMP, DEL (separated by semicolons)
+
+
+
+```
+
+## Data visualization
+
+```{r}
+library(Biostrings)
+
+# pick a set of highly variable set of probes and cluster the samples
+IQR <- apply (maqc.norm.filt$E, 1, IQR, na.rm = TRUE)
+topVar <- order(IQR, decreasing = TRUE)[1:500]
+d <- dist(t(maqc.norm.filt$E[topVar, ]))
+#plot(hclust(d))
+heatmap(maqc.norm.filt$E[topVar, ])
+
+# calculate GC content of all probes and plot histogram
+probeseqs <- unlist(as.list(illuminaHumanv4PROBESEQUENCE))
+GC <- vector(length = length(probeseqs))
+ss <- BStringSet(probeseqs[which(!is.na(probeseqs))])
+GC[which(!is.na(probeseqs))] <- letterFrequency(ss, letters = "GC")
+hist(GC/50, main = "GC proportion")
+```
