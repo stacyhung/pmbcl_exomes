@@ -132,37 +132,26 @@ library(maftools)
 library(gridExtra)
 
 # standard list of significantly mutated genes, along with clinical data annotations
-clinData.df <- read.table("/Volumes/shung/projects/PMBCL_exomes/data/clinData.txt", sep = "\t", header = TRUE)
-mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/maftools/paired_and_unpaired.snvs_and_indels.sig_genes_v3.hugo_gene.AF_filtered.gene_filtered.with_VAF.maf", 
-                          clinicalData = clinData.df)
+#clinData.df <- read.table("/Volumes/shung/projects/PMBCL_exomes/data/clinData.txt", sep = "\t", header = TRUE)
+#mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/maftools/paired_and_unpaired.snvs_and_indels.sig_genes_v3.hugo_gene.AF_filtered.gene_filtered.with_VAF.unique.maf", clinicalData = clinData.df)
 
-# OR mutations with additional copy number data:
-mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/maftools/paired_and_unpaired.snvs_and_indels.sig_genes_v3.hugo_gene.AF_filtered.gene_filtered.with_VAF.maf", 
-                          clinicalData = clinData.df,
-                          gisticAllLesionsFile = "/Volumes/shung/projects/PMBCL_exomes/gistic/output/drop_low_coverage-filtered_949-arm_peel-threshold_0.3-fdr_0.05-max_seg_1000-FINAL_FINAL_FINAL/gistic_segments.all_lesions.conf_90.txt", 
-                          gisticAmpGenesFile = "/Volumes/shung/projects/PMBCL_exomes/gistic/output/drop_low_coverage-filtered_949-arm_peel-threshold_0.3-fdr_0.05-max_seg_1000-FINAL_FINAL_FINAL/gistic_segments.amp_genes.conf_90.txt", 
-                          gisticDelGenesFile = "/Volumes/shung/projects/PMBCL_exomes/gistic/output/drop_low_coverage-filtered_949-arm_peel-threshold_0.3-fdr_0.05-max_seg_1000-FINAL_FINAL_FINAL/gistic_segments.del_genes.conf_90.txt", 
-                          gisticScoresFile = "/Volumes/shung/projects/PMBCL_exomes/gistic/output/drop_low_coverage-filtered_949-arm_peel-threshold_0.3-fdr_0.05-max_seg_1000-FINAL_FINAL_FINAL/gistic_segments.scores.gistic")
+# ALL mutations (not just ones in significant genes)
+#mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/mutation_summary-paired_and_unpaired.maf", clinicalData = clinData.df)
 
-# significant mutations *plus* IRF (use this mutation list for highlighting IRF pathway genes)
+# ALL mutations *including* UTR mutations (and all genes)
+mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/mutation_summary-paired_and_unpaired_with_UTRs.maf", clinicalData = clinData.df, vc_nonSyn = c("Frame_Shift_Del", "Frame_Shift_Ins", "Splice_Site", "Translation_Start_Site","Nonsense_Mutation", "Nonstop_Mutation", "In_Frame_Del","In_Frame_Ins", "Missense_Mutation", "3'UTR", "5'UTR"))
+
+# significant mutations plus IRF (use this mutation list for highlighting IRF pathway genes or overlaying CN)
 #mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/maftools/paired_and_unpaired.snvs_and_indels.sig_genes_v3.hugo_gene.AF_filtered.gene_filtered+IRF1.maf", 
+#                          clinicalData = clinData.df,
 #                          gisticAllLesionsFile = "/Volumes/shung/projects/PMBCL_exomes/gistic/output/drop_low_coverage-filtered_949-arm_peel-threshold_0.3-fdr_0.05-max_seg_1000-FINAL_FINAL_FINAL/gistic_segments.all_lesions.conf_90.txt", 
 #                          gisticAmpGenesFile = "/Volumes/shung/projects/PMBCL_exomes/gistic/output/drop_low_coverage-filtered_949-arm_peel-threshold_0.3-fdr_0.05-max_seg_1000-FINAL_FINAL_FINAL/gistic_segments.amp_genes.conf_90.txt", 
 #                          gisticDelGenesFile = "/Volumes/shung/projects/PMBCL_exomes/gistic/output/drop_low_coverage-filtered_949-arm_peel-threshold_0.3-fdr_0.05-max_seg_1000-FINAL_FINAL_FINAL/gistic_segments.del_genes.conf_90.txt")
 
-# Load mutation data into MAF object
-#mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/maftools/paired_and_unpaired.snvs_and_indels.sig_genes_v3.hugo_gene.AF_filtered.gene_filtered.maf")
-
-# MAF Summary Plot
-#plotmafSummary(maf = mutations.maf, rmOutlier = TRUE, dashboard = TRUE)
-
-# Oncoplot
-#oncoplot(maf = mutations.maf, genes = c("SOCS1", "STAT6", "GNA13", "ITPKB", "ACTB", "TNFAIP3", "IL4R", "ZNF217", "NFKBIE", "CIITA", "IRF2BP2", "CD58"))
-
 sig.genes <- c("SOCS1", "ITPKB", "STAT6", "GNA13", "NFKBIE", "PTPN1", "ZNF217", "IL4R", "ACTB", "HIST1H3D", "CD58", "IRF8", "SGPP1", "TNFAIP3", "GCSAM", "JUNB", "ZFP36L1", "RGS1", "HIST1H2BC", "HIST1H1C", "JAK1", "MS4A1", "SRSF1", "HIST1H1B", "EZH2", "IFNL3", "GDF11", "KLF9", "IL1RAPL2", "SERPINB3", "IGLJ2", "VMP1", "MYC", "LHFPL3", "TSPAN19", "IRF2BP2", "DDX3X", "CIITA", "IRF4", "CXCR5", "EPHA7", "IL13RA1", "CISH", "SPINK1", "TRAF3", "HIST1H4E", "HIST1H4J", "MAGEC2", "IRX2", "FPGT")
 
 # only with copy number:
-sig.genes <- c("SOCS1", "HIST1H3D", "TNFAIP3", "EZH2")
+sig.genes <- c("SOCS1", "HIST1H1C", "TNFAIP3", "EZH2")
 
 # colours for annotation tracks
 annot.colors <- list(Gender = c("Female"="palevioletred1", "Male"="royalblue1"),
@@ -178,38 +167,79 @@ annot.colors <- list(Gender = c("Female"="palevioletred1", "Male"="royalblue1"),
 oncoplot(maf = mutations.maf, genes = sig.genes, 
          clinicalFeatures = c("Gender", "Lymph3Cx", "Status_9p"),
          annotationColor = annot.colors, 
-         legendFontSize = 12)
+         legendFontSize = 12, drawColBar = FALSE)
 
 # oncoplot for IRF pathway
-oncoplot(maf = mutations.maf, genes = c("IRF2BP2", "IRF8", "IRF4", "IRF1", "CISH", "IL13RA1", "IL1RAPL2", "IFNL3"))
+
+#oncoplot(maf = mutations.maf, genes = c("IRF2BP2", "IRF8", "IRF4", "IRF1", "CISH", "IL13RA1", "IL1RAPL2", "IFNL3"))
+
+oncoplot(maf = mutations.maf, genes = c("TLR2", "TLR4", "TLR5", "MYD88", "RELA", "NFKB1", "TRAM1", "TICAM1", "TRAF6", "IRAK1", "IRAK4", "JAK2", "STAT1", "BCL6", "CD40"), drawColBar = FALSE)
+
+# combined IRF pathways
+oncoplot(maf = mutations.maf, genes = c("TLR2", "TLR4", "TLR5", "MYD88", "RELA", "NFKB1", "TRAM1", "TICAM1", "TRAF6", "IRAK1", "IRAK4", "JAK2", "STAT1", "BCL6", "CD40", "IRF2BP2", "IRF8", "IRF4", "IRF1"), drawColBar = FALSE)
+
+# IRF family members - for some reason oncoplot does not want to plot genes that have a UTR mutation (but will plot them if that patient has another type of non-UTR mutation) - perhaps try to reduce the maf to just the genes of interest, and add parameter removeNotMutatedGenes to TRUE...
+oncoplot(maf = mutations.maf, 
+         genes = c("IRF1", "IRF2", "IRF2BP2", "IRF3", "IRF4", "IRF7", "IRF8", "IRF9"), drawColBar = FALSE, 
+         colors = c("Frame_Shift_Del"="grey", 
+                    "Frame_Shift_Ins"="grey", 
+                    "Splice_Site"="orange", 
+                    "Translation_Start_Site"="blue",
+                    "Nonsense_Mutation"="red", 
+                    "Nonstop_Mutation"="red", 
+                    "In_Frame_Del"="grey",
+                    "In_Frame_Ins"="grey", 
+                    "Missense_Mutation"="green3", 
+                    "3'UTR"="purple3", 
+                    "5'UTR"="dodgerblue3",
+                    "Multi_Hit"="black"))
 
 # oncoplot for JAK-STAT pathway
-oncoplot(maf = mutations.maf, genes = c("CISH", "IL4R", "IL13RA1", "STAT6", "SOCS1", "PTPN1"))
+# alternative names: IL2RG ~ IL2gc (gamma chain); PTPN6 ~ SHP1; INPP5D ~ SHIP1; PTPN11 ~ SHP2
+oncoplot(maf = mutations.maf, genes = c("IL4R",
+                                        "SOCS1",
+                                        "STAT6",
+                                        "PTPN1",
+                                        "IL2RG",
+                                        "IL13RA1",
+                                        "JAK1", "JAK2", "JAK3",
+                                        "CISH",
+                                        "PTPN6",
+                                        "INPP5D",
+                                        "PTPN11"))
 
 # oncoplot for predicted mutually exclusive genes
 oncoplot(maf = mutations.maf, genes = c("STAT6", "CISH", "GNA13", "IL4R", "HIST1H1B"), keepGeneOrder = TRUE)
 
+# genes that have significant interactions
+sig.genes <- c("STAT6", "CISH", "GNA13", "IL4R", "SOCS1", "CXCR5", "ACTB", "IRF2BP2")
+
 # plot somatic interactions
-somaticInteractions(maf = mutations.maf, genes=sig.genes, top = 50, pvalue = c(0.05, 0.1))
+somaticInteractions(maf = mutations.maf, genes=sig.genes, top = 50, pvalue = c(0.05, 0.01))
 
 # oncoplots for EACH mutually exclusive / co-occurring interaction (most significant):
 
-# mutually exclusive interactions:
-plot.me1 <- oncoplot(maf = mutations.maf, genes = c("GNA13", "IL4R"), removeNonMutated = FALSE)
-plot.me2 <- oncoplot(maf = mutations.maf, genes = c("CISH", "STAT6"), removeNonMutated = FALSE)
-plot.me3 <- oncoplot(maf = mutations.maf, genes = c("CXCR5", "SOCS1"), removeNonMutated = FALSE)
+# mutually exclusive interactions: (30x3)
+oncoplot(maf = mutations.maf, genes = c("GNA13", "IL4R"), removeNonMutated = FALSE,
+                     drawRowBar = FALSE, drawColBar = FALSE, titleFontSize = 0, fontSize = 15)
+oncoplot(maf = mutations.maf, genes = c("CISH", "STAT6"), removeNonMutated = FALSE,
+                     drawRowBar = FALSE, drawColBar = FALSE, titleFontSize = 0, fontSize = 15)
+oncoplot(maf = mutations.maf, genes = c("CXCR5", "SOCS1"), removeNonMutated = FALSE,
+                     drawRowBar = FALSE, drawColBar = FALSE, titleFontSize = 0, fontSize = 15)
+
 # co-occurring interactions:
-oncoplot(maf = mutations.maf, genes = c("CISH", "ZFP36L1"), removeNonMutated = FALSE)
-oncoplot(maf = mutations.maf, genes = c("IRF2BP2", "ACTB"), removeNonMutated = FALSE)
-
-
+oncoplot(maf = mutations.maf, genes = c("IRF2BP2", "ACTB"), 
+         removeNonMutated = FALSE, 
+         drawRowBar = FALSE, 
+         drawColBar = FALSE, titleFontSize = 0, fontSize = 15)
 
 laml.titv = titv(maf = mutations.maf, plot = FALSE, useSyn = FALSE)
 # plot titv summary
 plotTiTv(res = laml.titv)
 
 # Plotting VAF
-vafPlot <- plotVaf(maf = mutations.maf, vafCol = 'VAF', flip = TRUE, top = 30, showN = TRUE)
+vafPlot <- plotVaf(maf = mutations.maf, genes = sig.genes, vafCol = 'VAF', 
+                   flip = FALSE, top = 50, showN = FALSE)
 ```
 
 ## Lollipop plots
@@ -221,20 +251,18 @@ library(gridExtra)
 # significant genes only
 mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/maftools/paired_and_unpaired.snvs_and_indels.sig_genes_v3.hugo_gene.AF_filtered.gene_filtered.with_AA_Change.maf")
 
-# all mutated genes
-mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/maftools/paired_and_unpaired.snvs_and_indels.sig_genes.AA_change.maf")
+# ALL mutations *including* UTR mutations (and all genes)
+mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/mutation_summary-paired_and_unpaired_with_UTRs.maf", vc_nonSyn = c("Frame_Shift_Del", "Frame_Shift_Ins", "Splice_Site", "Translation_Start_Site","Nonsense_Mutation", "Nonstop_Mutation", "In_Frame_Del","In_Frame_Ins", "Missense_Mutation", "3'UTR", "5'UTR"))
 
 mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/maftools/paired_and_unpaired.snvs_and_indels.sig_genes_v3.hugo_gene.AF_filtered.gene_filtered+IRF1_AA_Change.maf")
 
 sig.genes <- c("SOCS1", "ITPKB", "STAT6", "GNA13", "NFKBIE", "PTPN1", "ZNF217", "IL4R", "ACTB", "HIST1H3D", "CD58", "IRF8", "SGPP1", "TNFAIP3", "JUNB", "ZFP36L1", "RGS1", "HIST1H2BC", "HIST1H1C", "JAK1", "MS4A1", "SRSF1", "HIST1H1B", "EZH2", "GDF11", "KLF9", "IL1RAPL2", "SERPINB3", "VMP1", "MYC", "LHFPL3", "TSPAN19", "IRF2BP2", "DDX3X", "CIITA", "IRF4", "CXCR5", "EPHA7", "IL13RA1", "CISH", "SPINK1", "TRAF3", "HIST1H4E", "HIST1H4J", "MAGEC2", "IRX2", "FPGT", "ALX1")
 
-irf.genes <- c("IRF2BP2", "IRF8", "IRF4", "CISH", "IL13RA1", "IL1RAPL2") #IRF1 "IFNL3" protein structure not found 
 oncoclust.genes <- c("IRF4", "STAT6", "EZH2", "HIST1H3D", "ACTB", "BCL7A")
-sig.genes <- irf.genes
 
 # create grid of lollipop plots for all significant genes
 
-# for each significant gene, create survival plot
+# for each significant gene, create plot
 lolli.plots <- vector('list', length(sig.genes))
 for (i in seq_along(sig.genes)) {
   lolli.plots[[i]] <- lollipopPlot(maf = mutations.maf, 
@@ -383,8 +411,7 @@ clinical.data <- read.table("/Volumes/shung/projects/PMBCL_exomes/data/from_Dave
 # PFS: CODE_PFS and "Progression free survival (y)"
 
 genes = c("SOCS1", "ITPKB", "STAT6", "GNA13", "NFKBIE", "PTPN1", "ZNF217", "IL4R", "ACTB", "HIST1H3D", "CD58", "IRF8", "SGPP1", "TNFAIP3", "GCSAM", "JUNB", "ZFP36L1", "RGS1", "HIST1H2BC", "HIST1H1C", "JAK1", "MS4A1", "SRSF1", "HIST1H1B", "EZH2", "IFNL3", "GDF11", "KLF9", "IL1RAPL2", "SERPINB3", "VMP1", "MYC", "LHFPL3", "TSPAN19", "IRF2BP2", "DDX3X", "CIITA", "IRF4", "CXCR5", "EPHA7", "IL13RA1", "CISH", "SPINK1", "TRAF3", "HIST1H4E", "HIST1H4J", "MAGEC2", "IRX2", "FPGT")
-# omitting IGLJ2
-irf.genes = c("IRF2BP2", "IRF8", "IRF4", "IRF1", "CISH", "IL13RA1", "IL1RAPL2", "IFNL3")
+# omitting IGLJ2A
 jak.genes = c("CISH", "IL4R", "IL13RA1", "STAT6", "SOCS1", "PTPN1")
 
 #i<-1
@@ -513,7 +540,51 @@ waterfall(mutations.plot,
 #mainXlabel = TRUE,
 ```
 
-## 
+## Analyze IRF mutations
 
+```{r}
+library(maftools)
+library(gridExtra)
+library(dplyr)
 
+# Define the list of genes within the IRF pathway (suggested by Anja + combined with important IRF family members)
+irf.genes <- c("TLR2", "TLR4", "TLR5", "MYD88", "RELA", "NFKB1", "TRAM1", "TICAM1", "TRAF6", "IRAK1", "IRAK4", "JAK2", "STAT1", "BCL6", "CD40", "IRF2BP2", "IRF8", "IRF4", "IRF1")
+
+mutations <- read.table("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/mutation_summary-paired_and_unpaired.txt", sep = "\t", header = TRUE)
+
+# extract IRF-familiy mutation data
+mutations.irf_family <- unique(rbind(mutations[grep("^IRF", mutations$gene), ]))
+mutations.irf_family$gene <- factor(mutations.irf_family$gene)
+mutations.irf_family$effect <- factor(mutations.irf_family$effect)
+mutations.irf_family.table <- table(mutations.irf_family$gene, mutations.irf_family$effect)
+write.table(mutations.irf_family.table, "/Volumes/shung/projects/PMBCL_exomes/pathway_definitions/IRF/irf.mutation.table.txt", sep = "\t", quote = FALSE)
+
+# extract mutation data for the complete IRF pathway
+mutations.irf_pathway <- mutations[mutations$gene %in% irf.genes, ]
+mutations.irf_pathway$gene <- factor(mutations.irf_pathway$gene)
+mutations.irf_pathway$effect <- factor(mutations.irf_pathway$effect)
+mutations.irf_pathway.table <- t(table(mutations.irf_pathway$gene, mutations.irf_pathway$effect))
+write.table(mutations.irf_pathway, "/Volumes/shung/projects/PMBCL_exomes/pathway_definitions/IRF/mutations.irf_pathway.txt", sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(mutations.irf_pathway.table, "/Volumes/shung/projects/PMBCL_exomes/pathway_definitions/IRF/mutations.irf_pathway.table.txt", sep = "\t", quote = FALSE)
+
+# remove genes that are not mutated (not including UTR mutations)
+irf.genes.not_mutated <- c("MYD88", "RELA", "TRAM1", "TICAM1", "IRAK1", "CD40")
+irf.genes <- irf.genes[ !irf.genes %in% irf.genes.not_mutated ]
+
+# read in MAF files to plot IRF-specific oncoplot and lollipop plots
+mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/mutation_summary-paired_and_unpaired_with_UTRs.maf")
+
+lolli.plots <- vector('list', length(irf.genes))
+for (i in seq_along(irf.genes)) {
+  lolli.plots[[i]] <- lollipopPlot(maf = mutations.maf, 
+                          gene = irf.genes[i], 
+                          AACol = 'Protein_Change', 
+                          showMutationRate = TRUE, 
+                          domainLabelSize = 2, 
+                          defaultYaxis = FALSE
+                          )
+}
+do.call("grid.arrange", c(lolli.plots, ncol=1))
+
+```
 
