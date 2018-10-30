@@ -1,0 +1,195 @@
+---
+title: "lymph3cx_analysis"
+author: "Stacy Hung"
+date: "Septmeber 18, 2018"
+output: html_document
+---
+
+## Get frequencies based on Lymph3cx categories
+
+Here, we want to compare mutation frequencies in PMBCL-classified cases vs. non-PMBCL-classified cases (encompasses the categories ABC, GCB, and unclear PMBCL-ABC/GCB/unclassified)
+
+```{r}
+library(plyr)
+library(ggplot2)
+
+# NB: we should actually obtain all gene frequencies based on the summary dataset since it includes SPLICE_SITE_REGION mutations (~275) in paired samples, whereas the separate file for paired mutations snvs.intersect.all.txt does not.
+mutations <- read.table("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/mutation_summary-paired_and_unpaired.txt", sep = "\t", header = TRUE, fill = TRUE)
+
+# mapping function (analogous to vlookup)
+source("/Volumes/shung/scripts/addNewData.R")
+
+# in the lymph3cx dataset, the following can be used to lookup data using the addNewData function:
+#   lookupVariable ~ "patient_id"
+#   lookupValue ~ value of lookupVariable to match against (e.g. "PA001")
+#   newVariable ~ "lymph3cx_classification" (value)
+#   newValue ~ value of the newVariable for matched row (e.g. "PMBCL")
+
+# read in lookup table for lymph3cx:
+#lymph3cx.newData <- read.table("/Volumes/shung/projects/PMBCL_exomes/lymphc3x/lymph3cx.newData.txt", sep = "\t", header = TRUE)
+
+# now apply the table to the mutations
+allowedVars <- c("lymph3cx")
+mutations.with_lymph3cx <- addNewData(
+  newDataFileName = "/Volumes/shung/projects/PMBCL_exomes/lymphc3x/lymph3cx.newData.csv", 
+  data=mutations, 
+  allowedVars = allowedVars)
+
+mutations.lymph3x_PMBCL <- subset(mutations.with_lymph3cx, mutations.with_lymph3cx$lymph3cx == "PMBL")
+mutations.lymph3x_not_PMBCL <- subset(mutations.with_lymph3cx, mutations.with_lymph3cx$lymph3cx != "PMBL")
+
+keeps <- c("patient_id", "gene")
+mutations.pmbl.patient_gene <- unique(mutations.lymph3x_PMBCL[keeps])
+mutations.not_pmbl.patient_gene <- unique(mutations.lymph3x_not_PMBCL[keeps])
+
+NUM_PMBL_PATIENTS <- length(unique(mutations.pmbl.patient_gene$patient_id))
+NUM_NOT_PMBL_PATIENTS <- length(unique(mutations.not_pmbl.patient_gene$patient_id))
+
+pmbl.gene_counts <- as.data.frame(table(mutations.pmbl.patient_gene$gene))
+not_pmbl.gene_counts <- as.data.frame(table(mutations.not_pmbl.patient_gene$gene))
+
+# calculate proportions of cases
+pmbl.gene_counts$proportion <- pmbl.gene_counts$Freq / NUM_PMBL_PATIENTS * 100
+not_pmbl.gene_counts$proportion <- not_pmbl.gene_counts$Freq / NUM_NOT_PMBL_PATIENTS * 100
+  
+# label the datasets
+pmbl.gene_counts$dataset <- "PMBCL-Lymph3cx-classified (n=73)"
+not_pmbl.gene_counts$dataset <- "Not PMBCL-Lymph3cx-classified (n=17)"
+
+colnames(pmbl.gene_counts) <- c("gene", "freq", "proportion", "dataset")
+colnames(not_pmbl.gene_counts) <- c("gene", "freq", "proportion", "dataset")
+```
+
+## Frequency plot comparing PMBCL-classified vs. not PMBCL-classified cases (according to Lymph3cx)
+
+```{r}
+freq.data <- rbind(pmbl.gene_counts, not_pmbl.gene_counts)
+freq.data$dataset <- factor(freq.data$dataset, levels = c("PMBCL-Lymph3cx-classified (n=73)", "Not PMBCL-Lymph3cx-classified (n=17)"))
+
+# reorder by value of PMBCL frequency
+freq.data.pmbcl <- subset(freq.data, freq.data$dataset == "PMBCL-Lymph3cx-classified (n=73)")
+freq.data$gene <- factor(freq.data$gene, levels = freq.data$gene[order(freq.data.pmbcl$proportion)])
+
+plot.pmbcl <- ggplot(data=freq.data, aes(x = gene, y = proportion, fill=dataset)) +
+  geom_bar(stat="identity", position=position_dodge(), width = 0.8) +
+  theme_bw() +
+  ylab("Cases mutated (%)") + xlab("") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size=14),
+        axis.text.y  = element_text(size=14), 
+        axis.title.x = element_text(size = 18), 
+        axis.title.y = element_text(size = 18), 
+        legend.text = element_text(size=14), 
+        plot.margin = unit(c(1,0,0,3), "cm")) +
+  scale_fill_manual(values = c("steelblue4", "firebrick1"),
+                    breaks = c("PMBCL-Lymph3cx-classified (n=73)", 
+                               "Not PMBCL-Lymph3cx-classified (n=17)"),
+                    labels = c("PMBCL-Lymph3cx-classified (n=73)",
+                               "Not PMBCL-Lymph3cx-classified (n=17)"),
+                    name = "")  
+
+
+##### ARG.... this is why we need the forest plot is because we have 15000 genes to work with!! with ones are the most signficantly different between the two datasets???? This we can show with the forest plot
+```
+
+```{r}
+library(survival)
+library(survminer)
+library(dplyr)
+library(gridExtra)
+```
+
+## Forest plots based on survival data
+
+```{r}
+data.df <- read.table("/Volumes/shung/projects/PMBCL_exomes/survival_analysis/clinical_data-with_mutations_in_sig_genes.txt", sep = "\t", fill = TRUE, header = TRUE, as.is = TRUE)
+
+# only look at rituximab-treated patients
+data.rit <- subset(data.df, data.df$RITUXIMAB == 1) # 61/94 patients
+
+# DSS: fit survival data using the Kaplan-Meier method
+surv_object.dss <- Surv(time = data.rit$Disease.specific.survival..y.,
+                    event = data.rit$CODE_DSS)
+# TTP
+surv_object.ttp <- Surv(time = data.rit$Time.to.progression..y.,
+                    event = data.rit$CODE_TTP)
+
+# Categorize lymph3cx data
+data.rit <- data.rit %>%
+  mutate(lymph3cx.status = ifelse(lymph3cx == "PMBL", "PMBL", "non-PMBL"))
+
+# pass survival data to survival function, and stratify curve based on treatment regimen
+fit.coxph.dss <- coxph(surv_object.dss ~ SEX + IPI + lymph3cx.status, data = data.rit)
+fit.coxph.ttp <- coxph(surv_object.ttp ~ SEX + IPI + lymph3cx.status, data = data.rit)
+
+# Fit a Cox proportional hazards model
+#fit.coxph <- coxph(surv_object ~ IPI + ACTB + HIST1H3D, data = data.rit)
+ggforest(fit.coxph.dss, data = data.rit)
+ggforest(fit.coxph.ttp, data = data.rit)
+
+```
+
+## Gene expression analysis
+
+Do we see the same patterns in the Lymph3cx paper with our exome cases?
+
+```{r}
+library(RColorBrewer)
+library(colorspace)
+library(pheatmap)
+
+# load genes
+#lymph3cx.genes <- c("CARD11", "BTG2", "PRKCB", "FAM159A", "PRDX2", "BANK1", "MAL", "HOMER2", "CCL17", "FSCN1", "TFPI2", "TMOD1", "SLAMF1", "RCL1", "PRR6", "IL13RA1", "MST1R", "LIMA1", "TRAF1", "PDCD1LG2", "PTGIR", "NFIL3", "BATF3", "RHOF", "SNX11", "QSOX1", "AUH", "IFIH1", "MOBKL2C", "NECAP2")
+lymph3cx.genes <- scan(file = "/Volumes/shung/projects/PMBCL_exomes/lymphc3x/lymph3cx.complete.txt", what = 'character')
+
+# load the expression data
+expr.mat <- read.table("/Volumes/shung/projects/PMBCL_exomes/DASL/analysis/DASL-expression.norm.filtered.txt", sep = "\t", header = TRUE, row.names = 1)
+
+# read in patients that should be removed, and patient ids to use for exome cases
+patients.to_remove <- scan(file = "/Volumes/shung/projects/PMBCL_exomes/DASL/data/patients_to_remove.txt", what = 'character')
+patients.exomes <- scan(file = "/Volumes/shung/projects/PMBCL_exomes/DASL/data/patient_ids.exomes.txt", what = 'character')
+
+# remove patients that do not have exomes
+expr.exomes <- expr.mat[ , !(names(expr.mat) %in% patients.to_remove)]
+# also remove extra gene columns
+
+# finally, remove patient that doesn't have mutation data (to match dimensions of design matrix)
+drops <- c("PA012")
+expr.exomes <- expr.exomes[, !(names(expr.exomes) %in% drops)]
+
+# extract DASL expression data corresponding to lymph3cx genes
+expr.exomes_lymph3cx_genes <- expr.exomes[expr.exomes$SYMBOL %in% lymph3cx.genes, ] 
+
+# rename rows to be gene names with probeset id (since row names must be unique)
+expr.exomes_lymph3cx_genes$probeset_id <- row.names(expr.exomes_lymph3cx_genes)
+expr.exomes_lymph3cx_genes$gene_probeset <- paste(expr.exomes_lymph3cx_genes$SYMBOL,
+                                                  " (", expr.exomes_lymph3cx_genes$probeset_id, ")", sep = "")
+row.names(expr.exomes_lymph3cx_genes) <- expr.exomes_lymph3cx_genes$gene_probeset
+# remove unnecessary annotation columns
+drops <- c("SYMBOL", "TargetID", "probeset_id", "gene_probeset")
+expr.exomes_lymph3cx_genes <- expr.exomes_lymph3cx_genes[ , !(names(expr.exomes_lymph3cx_genes) %in% drops)]
+# rename res-ids (which start with with an "X" and have a dot instead of dash due to R constraints)
+colnames(expr.exomes_lymph3cx_genes) <- patients.exomes
+
+# add annotation for lymph3cx classification (esp. PMBCL vs. non-PMBCL classification)
+lymph3cx.annotation <- read.table("/Volumes/shung/projects/PMBCL_exomes/lymphc3x/lymph3cx.simplified.txt", sep = "\t", header = TRUE, row.names = 1)
+lymph3cx.annotation <- lymph3cx.annotation[row.names(lymph3cx.annotation) %in% names(expr.exomes_lymph3cx_genes), ]
+annotation.col <- lymph3cx.annotation[c("value")]
+colnames(annotation.col) <- c("Lymph3cx")
+ann_colors <- list(
+  Lymph3cx = c("ABC"="coral1",
+               "GCB"="cyan3", 
+               "PMBL"="mediumpurple1",
+               "Uncertain"="gray80")
+)
+
+# visualize expression data for genes of interest
+expr.colours <- brewer.pal(10, "RdBu")
+pheatmap(expr.exomes_lymph3cx_genes,
+         color = expr.colours, 
+         cluster_rows = TRUE, 
+         show_rownames = TRUE, 
+         scale = "row", 
+         annotation_col = annotation.col, 
+         annotation_colors = ann_colors[1])
+         
+```
