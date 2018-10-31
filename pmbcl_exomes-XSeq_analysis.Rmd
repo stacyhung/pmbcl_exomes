@@ -153,11 +153,14 @@ load("/Volumes/shung/projects/PMBCL_exomes/XSeq/data/influence_graph/influence_g
 weight <- EstimateExpression(expr.exomes)
 
 # Impute missing values
-expr <- ImputeKnn(expr)
-cna.logr <- ImputeKnn(cna.logr)
+#expr <- ImputeKnn(expr)  # vignette
+expr.exomes <- ImputeKnn(expr.exomes)
+#cna.logr <- ImputeKnn(cna.logr)  # vignette
+cnvkit.log2ratio <- ImputeKnn(cnvkit.log2ratio)
 
 # Quantile-Normalization
-expr.quantile <- QuantileNorm(expr)
+#expr.quantile <- QuantileNorm(expr)  # vignette
+expr.exomes.quantile <- QuantileNorm(expr.exomes)
 
 ```
 
@@ -165,9 +168,16 @@ expr.quantile <- QuantileNorm(expr)
 
 ```{r}
 # First show mutations, expression, and copy number alterations for a single gene - make sure there is enough room on the plot screen to display the plot!
-tmp <- GetExpressionDistribution(expr = expr.quantile, mut = mut, cna.call = cna.call, gene = "TP53", show.plot = TRUE)
+#tmp <- GetExpressionDistribution(expr = expr.quantile, mut = mut, cna.call = cna.call, gene = "TP53", show.plot = TRUE) # vignette
+tmp <- GetExpressionDistribution(expr = expr.exomes.quantile, 
+                                 mut = data.mut, 
+                                 cna.call = cnvkit.cn, 
+                                 gene = "SOCS1", 
+                                 show.plot = TRUE)
 
-expr.dis.quantile <- GetExpressionDistribution(expr = expr.quantile, mut = mut)
+#expr.dis.quantile <- GetExpressionDistribution(expr = expr.quantile, mut = mut)  # vignette
+expr.dis.quantile <- GetExpressionDistribution(expr = expr.exomes.quantile, 
+                                               mut = data.mut)
 
 #========================
 
