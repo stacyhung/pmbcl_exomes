@@ -1,0 +1,248 @@
+---
+title: "Integration of mutation and expression data for PMBCL"
+author: "Stacy Hung"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+This script takes expression data (DASL dataset) and integrates it with mutation data (based on exomes) using the package xseq (https://cran.r-project.org/web/packages/xseq/index.html).
+
+Mutation data is similar to the format of MAF data with the following columns:
+1. sample (e.g. PA012)
+2. hgnc_symbol (e.g. TRAF3)
+3. entrezgene (e.g. 0) [optional]
+4. variant_type : one of {MISSENSE, SYNONYMOUS, FRAMESHIFT, OTHER, SPLICE, INFRAME}
+5. chrom (e.g. 10)
+6. start_coord
+7. end_coord
+8. strand (e.g. + or -)
+9. reference_allele
+10. tumor_allele1
+11. tumor_allele2
+12. tumor_allele
+
+Expression data is in a matrix format where continuous expression values are laid out per patient (by row) and gene (columns).
+
+## Load libraries
+
+```{r}
+library(xseq)
+library(plyr) # for revalue function
+library(tidyr) # to convert from wide to long
+```
+
+## Load and process mutation data
+```{r}
+# option 1 for mutation data: use all paired + singles data (like summary table, but omitting UTR mutations)
+# option 2 for mutation data: use paired + singles (only including genes that are mutated in pairs)
+data.mut <- read.table("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/mutation_summary-paired_and_unpaired.maf", sep = "\t", header = TRUE, fill = TRUE)
+# rearrange columns to be in a similar order to that used in the vignette
+data.mut <- data.mut[c("Tumor_Sample_Barcode", "Hugo_Symbol", "Variant_Classification", "Chromosome", "Start_Position", "End_Position", "Reference_Allele", "Tumor_Seq_Allele2", "alt", "Protein_Change", "CDS_Change", "VAF")]
+# rename columns to match the ones that are used in the vignette
+colnames(data.mut) <- c("sample", "hgnc_symbol", "variant_type", "chrom", "start_coord", "end_coord", "reference_allele", "tumor_allele2", "alt", "Protein_Change", "CDS_Change", "VAF")
+# map variant types to the ones used in the vignette
+variant_type.for_xseq <- c("Splice_Site"="SPLICE",
+                           "Frame_Shift_Del"="FRAMESHIFT",
+                           "Frame_Shift_Ins"="FRAMESHIFT",
+                           "Missense_Mutation"="MISSENSE",
+                           "Nonsense_Mutation"="NONSENSE",
+                           "Nonstop_Mutation"="MISSENSE")
+data.mut$variant_type <- revalue(data.mut$variant_type, variant_type.for_xseq)
+```
+
+## Load and process expression data
+
+```{r}
+# load the expression data
+expr.mat <- read.table("/Volumes/shung/projects/PMBCL_exomes/DASL/analysis/DASL-expression.norm.filtered.txt", sep = "\t", header = TRUE, row.names = 1)
+
+# We first need to aggregate genes that have multiple probeset ids (take the average)
+# First, convert from matrix to long format
+expr.mat.long <- gather(expr.mat, patient, expr, X05.23520:X04.26715)
+# remove one of the gene columns (they are duplicates)
+drops <- c("TargetID")
+expr.mat.long <- expr.mat.long[,!(names(expr.mat.long) %in% drops)]
+# now aggregate values for the same gene
+expr.mat.avg <- acast(expr.mat.long, patient ~ SYMBOL,
+                      fun.aggregate = mean,
+                      value.var = "expr"
+                      )
+
+# read in patients that should be removed, and patient ids to use for exome cases
+patients.to_remove <- scan(file = "/Volumes/shung/projects/PMBCL_exomes/DASL/data/patients_to_remove.txt", what = 'character')
+patients.exomes <- scan(file = "/Volumes/shung/projects/PMBCL_exomes/DASL/data/patient_ids.exomes.txt", what = 'character')
+
+# remove patients that do not have exomes
+expr.exomes <- expr.mat.avg[!(rownames(expr.mat.avg) %in% patients.to_remove), ]
+
+# rename res-ids (which start with with an "X" and have a dot instead of dash due to R constraints)
+row.names(expr.exomes) <- patients.exomes
+
+# finally, remove patient that doesn't have mutation data (to match dimensions of design matrix)
+drops <- c("PA012")
+expr.exomes <- expr.exomes[!(row.names(expr.exomes) %in% drops), ]
+
+```
+
+## Load and process copy number datasets
+```{r}
+cnvkit.data <- unique(read.table("/Volumes/shung/projects/PMBCL_exomes/XSeq/cnvkit/cnvkit.summarized_for_xseq.txt", sep = "\t", header = TRUE))
+
+# NB: we need to specify an aggregation function (what to do with multiple values for the value of interest - e.g. this may occur when a gene is split between two bins that have been predicted with different copy number) - we will take the mean in such cases.
+
+# convert to matrix format for absolute number (0 = homozygous loss; ..,; 4+ amplification)
+cnvkit.cn <- acast(cnvkit.data, patient ~ gene,
+                      fill = 2,
+                      fun.aggregate = mean,
+                      value.var = "cn"
+                      )
+
+# NB: Xseq maps copy number calls differently than CNVkit - for xseq, each element is coded:
+#         -2 --> homozygous deletion
+#         -1 --> hemizygous deletion
+#          0 --> neutral
+#          1 --> gain
+#          2 --> amplification
+
+library(plyr)
+# map cnvkit values to xseq values
+cnvkit.cn <- mapvalues(cnvkit.cn, 
+          from=c(0, 1, 2, 3, 4), 
+          to=c(-2, -1, 0, 1, 2))
+
+# all amplifications in xseq are a single value (not on a scale)
+cnvkit.cn[cnvkit.cn > 4] <- 2
+
+# Recall that we ignored genes with a neutral copy number (=2), which means we will lose some granularity in the log2ratio value, but can set these cases to a log2ratio = -0.025 (average of -0.25 and 0.2, boundaries of neutral copy number).
+
+# convert to matrix format for log2 ratio
+cnvkit.log2ratio <- acast(cnvkit.data, patient ~ gene,
+                      fill = -0.025,
+                      fun.aggregate = mean,
+                      value.var = "log2"
+                      )
+
+```
+
+## Load list of gene interactions - presumably, the (global?) influence graph provided is sufficient?
+
+```{r}
+# downloaded from Shah Lab website, and is a combined functional gene association network that merges
+# the STRING (v9.1) functional protein association network, pathway data sets from KEGG, WikiPathway, and BioCyc
+# and transcription factor-targets networks.
+load("/Volumes/shung/projects/PMBCL_exomes/XSeq/data/influence_graph/influence_graph.rda")
+# can be referred to as influence.graph
+```
+
+## load data into xseq
+
+```{r}
+#data(mut, expr, cna.call, cna.logr, net)  # vignette dataset
+# our datasets:
+#   mut ~ data.mut
+#   expr ~ expr.exomes
+#   cna.call ~ cnvkit.cn
+#   cna.logr ~ cnvkit.log2ratio
+#   net ~ influence.graph
+
+## Cis-analysis: analyze the cis-effects of loss-of-function mutations (frameshift, nonsense, and splice-site) on gene expression
+
+# Compute whether a gene is expressed in the studied tumor type
+#weight <- EstimateExpression(expr) # vignette
+weight <- EstimateExpression(expr.exomes)
+
+# Impute missing values
+expr <- ImputeKnn(expr)
+cna.logr <- ImputeKnn(cna.logr)
+
+# Quantile-Normalization
+expr.quantile <- QuantileNorm(expr)
+
+```
+
+## Get conditional distributions of genes (based on copy number data)
+
+```{r}
+# First show mutations, expression, and copy number alterations for a single gene - make sure there is enough room on the plot screen to display the plot!
+tmp <- GetExpressionDistribution(expr = expr.quantile, mut = mut, cna.call = cna.call, gene = "TP53", show.plot = TRUE)
+
+expr.dis.quantile <- GetExpressionDistribution(expr = expr.quantile, mut = mut)
+
+#========================
+
+## Filtering not expressed genes, and only analyze loss-of-function mutations
+
+id <- weight[mut[, "hgnc_symbol"]] >= 0.8 & (mut[, "variant_type"] %in% c("FRAMESHIFT", "NONSENSE", "SPLICE"))
+id <- id & !is.na(id)
+mut.filt <- mut[id, ]
+
+#========================
+
+init <- SetXseqPrior(expr.dis = expr.dis.quantile, mut = mut.filt, mut.type = "loss", cis = TRUE)
+
+# Parameter constraints in EM-iterations
+constraint <- list(equal.fg = FALSE)
+
+model.cis <- InitXseqModel(mut = mut.filt, expr = expr.quantile, expr.dis = expr.dis.quantile,
+                           cpd = init$cpd, cis = TRUE, prior = init$prior)
+
+model.cis.em <- LearnXseqParameter(model = model.cis, constraint = constraint, iter.max = 50, threshold = 1e-6)
+
+xseq.pred <- ConvertXseqOutput(model.cis.em$posterior)
+xseq.pred[1:20, ]
+
+```
+
+## Walk-through the vignette
+
+```{r}
+library(xseq)
+data(mut, expr, cna.call, cna.logr, net)  # vignette dataset
+
+## Cis-analysis: analyze the cis-effects of loss-of-function mutations (frameshift, nonsense, and splice-site) on gene expression
+
+# Compute whether a gene is expressed in the studied tumor type
+weight <- EstimateExpression(expr)
+
+# Impute missing values
+expr <- ImputeKnn(expr)
+cna.logr <- ImputeKnn(cna.logr)
+
+# Quantile-Normalization
+expr.quantile <- QuantileNorm(expr)
+
+#========================
+
+## Get the conditional distributions P(Y|G)
+
+# First show TP53 mutations, expression, and copy number alterations - make sure there is enough room on the plot screen to display the plot!
+tmp <- GetExpressionDistribution(expr = expr.quantile, mut = mut, cna.call = cna.call, gene = "TP53", show.plot = TRUE)
+
+expr.dis.quantile <- GetExpressionDistribution(expr = expr.quantile, mut = mut)
+
+#========================
+
+## Filtering not expressed genes, and only analyze loss-of-function mutations
+
+id <- weight[mut[, "hgnc_symbol"]] >= 0.8 & (mut[, "variant_type"] %in% c("FRAMESHIFT", "NONSENSE", "SPLICE"))
+id <- id & !is.na(id)
+mut.filt <- mut[id, ]
+
+#========================
+
+init <- SetXseqPrior(expr.dis = expr.dis.quantile, mut = mut.filt, mut.type = "loss", cis = TRUE)
+
+# Parameter constraints in EM-iterations
+constraint <- list(equal.fg = FALSE)
+
+model.cis <- InitXseqModel(mut = mut.filt, expr = expr.quantile, expr.dis = expr.dis.quantile,
+                           cpd = init$cpd, cis = TRUE, prior = init$prior)
+
+model.cis.em <- LearnXseqParameter(model = model.cis, constraint = constraint, iter.max = 50, threshold = 1e-6)
+
+xseq.pred <- ConvertXseqOutput(model.cis.em$posterior)
+xseq.pred[1:20, ]
+
+```
+
