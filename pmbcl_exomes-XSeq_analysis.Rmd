@@ -27,9 +27,10 @@ Expression data is in a matrix format where continuous expression values are lai
 ## Load libraries
 
 ```{r}
-library(xseq)
+library(xseq) # note that version on bitbucket is most up-to-date: https://bitbucket.org/shahlabbcca/xseq.git
 library(plyr) # for revalue function
 library(tidyr) # to convert from wide to long
+library(reshape2) # for acast
 ```
 
 ## Load and process mutation data
@@ -49,6 +50,13 @@ variant_type.for_xseq <- c("Splice_Site"="SPLICE",
                            "Nonsense_Mutation"="NONSENSE",
                            "Nonstop_Mutation"="MISSENSE")
 data.mut$variant_type <- revalue(data.mut$variant_type, variant_type.for_xseq)
+
+# convert values to character class (similar to in vignette)
+data.mut[] <- lapply(data.mut, as.character)
+
+# only keep patients that have expression data
+#temp <- data.mut[data.mut$sample %in% patients.exomes, ]
+
 ```
 
 ## Load and process expression data
@@ -125,7 +133,7 @@ cnvkit.log2ratio <- acast(cnvkit.data, patient ~ gene,
 
 ```
 
-## Load list of gene interactions - presumably, the (global?) influence graph provided is sufficient?
+## Load list of gene interactions (global influence graph) - large, so needs to be filtered
 
 ```{r}
 # downloaded from Shah Lab website, and is a combined functional gene association network that merges
@@ -133,11 +141,7 @@ cnvkit.log2ratio <- acast(cnvkit.data, patient ~ gene,
 # and transcription factor-targets networks.
 load("/Volumes/shung/projects/PMBCL_exomes/XSeq/data/influence_graph/influence_graph.rda")
 # can be referred to as influence.graph
-```
 
-## load data into xseq
-
-```{r}
 #data(mut, expr, cna.call, cna.logr, net)  # vignette dataset
 # our datasets:
 #   mut ~ data.mut
@@ -145,9 +149,11 @@ load("/Volumes/shung/projects/PMBCL_exomes/XSeq/data/influence_graph/influence_g
 #   cna.call ~ cnvkit.cn
 #   cna.logr ~ cnvkit.log2ratio
 #   net ~ influence.graph
+```
 
 ## Cis-analysis: analyze the cis-effects of loss-of-function mutations (frameshift, nonsense, and splice-site) on gene expression
 
+```{r}
 # Compute whether a gene is expressed in the studied tumor type
 #weight <- EstimateExpression(expr) # vignette
 weight <- EstimateExpression(expr.exomes)
@@ -162,17 +168,14 @@ cnvkit.log2ratio <- ImputeKnn(cnvkit.log2ratio)
 #expr.quantile <- QuantileNorm(expr)  # vignette
 expr.exomes.quantile <- QuantileNorm(expr.exomes)
 
-```
-
 ## Get conditional distributions of genes (based on copy number data)
 
-```{r}
 # First show mutations, expression, and copy number alterations for a single gene - make sure there is enough room on the plot screen to display the plot!
 #tmp <- GetExpressionDistribution(expr = expr.quantile, mut = mut, cna.call = cna.call, gene = "TP53", show.plot = TRUE) # vignette
 tmp <- GetExpressionDistribution(expr = expr.exomes.quantile, 
                                  mut = data.mut, 
                                  cna.call = cnvkit.cn, 
-                                 gene = "SOCS1", 
+                                 gene = "FRG1", 
                                  show.plot = TRUE)
 
 #expr.dis.quantile <- GetExpressionDistribution(expr = expr.quantile, mut = mut)  # vignette
@@ -183,76 +186,136 @@ expr.dis.quantile <- GetExpressionDistribution(expr = expr.exomes.quantile,
 
 ## Filtering not expressed genes, and only analyze loss-of-function mutations
 
-id <- weight[mut[, "hgnc_symbol"]] >= 0.8 & (mut[, "variant_type"] %in% c("FRAMESHIFT", "NONSENSE", "SPLICE"))
+#id <- weight[data.mut[, "hgnc_symbol"]] >= 0.8 & (data.mut[, "variant_type"] %in% c("FRAMESHIFT", "NONSENSE", "SPLICE"))
+id <- weight[data.mut[, "hgnc_symbol"]] >= 0.8 & (data.mut[, "variant_type"] %in% c("MISSENSE", "FRAMESHIFT", "NONSENSE", "SPLICE"))
 id <- id & !is.na(id)
-mut.filt <- mut[id, ]
+data.mut.filt <- data.mut[id, ]
 
 #========================
 
-init <- SetXseqPrior(expr.dis = expr.dis.quantile, mut = mut.filt, mut.type = "loss", cis = TRUE)
+#init <- SetXseqPrior(expr.dis = expr.dis.quantile, mut = mut.filt, mut.type = "loss", cis = TRUE) # vignette
+init <- SetXseqPrior(expr.dis = expr.dis.quantile, mut = data.mut.filt, mut.type = "loss", cis = TRUE)
 
 # Parameter constraints in EM-iterations
+#constraint <- list(equal.fg = FALSE)
 constraint <- list(equal.fg = FALSE)
 
-model.cis <- InitXseqModel(mut = mut.filt, expr = expr.quantile, expr.dis = expr.dis.quantile,
+#model.cis <- InitXseqModel(mut = mut.filt, expr = expr.quantile, expr.dis = expr.dis.quantile, cpd = init$cpd, cis = TRUE, prior = init$prior) # vignette
+model.cis <- InitXseqModel(mut = data.mut.filt, 
+                           expr = expr.exomes.quantile, 
+                           expr.dis = expr.dis.quantile,
                            cpd = init$cpd, cis = TRUE, prior = init$prior)
 
-model.cis.em <- LearnXseqParameter(model = model.cis, constraint = constraint, iter.max = 50, threshold = 1e-6)
+#model.cis.em <- LearnXseqParameter(model = model.cis, constraint = constraint, iter.max = 50, threshold = 1e-6) # vignette
+model.cis.em <- LearnXseqParameter(model = model.cis, 
+                                   constraint = constraint, 
+                                   iter.max = 50, 
+                                   threshold = 1e-6)
 
+#xseq.pred <- ConvertXseqOutput(model.cis.em$posterior)
 xseq.pred <- ConvertXseqOutput(model.cis.em$posterior)
-xseq.pred[1:20, ]
+write.table(xseq.pred, "/Volumes/shung/projects/PMBCL_exomes/XSeq/output/xseq.cis_pred.with_missense.txt", sep = "\t", quote = FALSE)
 
 ```
 
-## Walk-through the vignette
+## Plot distribution of probabilities from cis-analysis (possible cutoff we can set?)
 
 ```{r}
-library(xseq)
-data(mut, expr, cna.call, cna.logr, net)  # vignette dataset
+library(ggplot2)
 
-## Cis-analysis: analyze the cis-effects of loss-of-function mutations (frameshift, nonsense, and splice-site) on gene expression
+# rename columns so they can be referenced easier for plotting
+colnames(xseq.pred) <- c("patient", "gene", "p_patient", "p_cohort")
 
-# Compute whether a gene is expressed in the studied tumor type
-weight <- EstimateExpression(expr)
+# summarize cohort-level data (one probability value per gene)
+xseq.cis_pred.cohort <- unique(xseq.pred[, c("gene", "p_cohort")])
 
-# Impute missing values
-expr <- ImputeKnn(expr)
-cna.logr <- ImputeKnn(cna.logr)
+# plot the distribution of probabilities at the patient level
+plot <- ggplot(xseq.pred, aes(as.numeric(p_patient))) + 
+  geom_density() + 
+  xlab ("Probability across individual patients") + 
+  ylab("Density") +
+  ggtitle("Distribution of xseq cis-analysis probabilities (patient-level)")
+# set cutoff based on distribution
+cutoff <- 0.13
+# distribution with cutoff for noise
+plot + geom_vline(xintercept = cutoff, linetype = "dashed", color = "red", size = 0.5)
 
-# Quantile-Normalization
-expr.quantile <- QuantileNorm(expr)
+# plot the distribution of probabilities at the cohort level
+plot <- ggplot(xseq.cis_pred.cohort, aes(as.numeric(p_cohort))) + 
+  geom_density() + 
+  xlab ("Probability across all patients") + 
+  ylab("Density") +
+  ggtitle("Distribution of xseq cis-analysis probabilities (cohort-level)")
+
+plot <- ggplot(xseq.cis_pred.cohort, aes(as.numeric(p_cohort))) + 
+  geom_histogram(bins = 50) + 
+  xlab ("Probability across all patients") + 
+  ylab("Density") +
+  xlim(0.1, 1) +
+  ggtitle("Distribution of xseq cis-analysis probabilities (cohort-level)")
+# set cutoff based on distribution
+cutoff <- 0.05
+# distribution with cutoff for noise
+plot + geom_vline(xintercept = cutoff, linetype = "dashed", color = "red", size = 0.5)
+
+```
+
+## Trans-analysis
+
+```{r}
+## Remove the cis-effects of copy number alterations on gene expression
+
+# first, look at an example
+tmp <- NormExpr(cna.logr = cnvkit.log2ratio, 
+                expr = expr.exomes, 
+                gene = "N",
+                show.plot = TRUE)
+
+expr.norm = NormExpr(cna.logr = cnvkit.log2ratio, expr = expr.exomes)
+expr.norm.quantile <- QuantileNorm(expr.norm)
 
 #========================
-
 ## Get the conditional distributions P(Y|G)
-
-# First show TP53 mutations, expression, and copy number alterations - make sure there is enough room on the plot screen to display the plot!
-tmp <- GetExpressionDistribution(expr = expr.quantile, mut = mut, cna.call = cna.call, gene = "TP53", show.plot = TRUE)
-
-expr.dis.quantile <- GetExpressionDistribution(expr = expr.quantile, mut = mut)
-
+#
+expr.dis.norm.quantile <- GetExpressionDistribution(expr = expr.norm.quantile, mut = data.mut)
 #========================
-
-## Filtering not expressed genes, and only analyze loss-of-function mutations
-
-id <- weight[mut[, "hgnc_symbol"]] >= 0.8 & (mut[, "variant_type"] %in% c("FRAMESHIFT", "NONSENSE", "SPLICE"))
+## Filter out genes that not expressed
+#
+id <- weight[data.mut[, "hgnc_symbol"]] >= 0.8
 id <- id & !is.na(id)
-mut.filt <- mut[id, ]
+data.mut.filt <- data.mut[id, ]
 
 #========================
+## Filter the network
+net.filt <- FilterNetwork(net = influence.graph, weight = weight)
 
-init <- SetXseqPrior(expr.dis = expr.dis.quantile, mut = mut.filt, mut.type = "loss", cis = TRUE)
+init <- SetXseqPrior(expr.dis = expr.dis.norm.quantile,
+                     net = net.filt,
+                     mut = data.mut.filt,
+                     mut.type = "both",
+                     cis = FALSE)
 
-# Parameter constraints in EM-iterations
-constraint <- list(equal.fg = FALSE)
+# parameter constraints in EM-iterations
+constraint <- list(equal.fg = TRUE, baseline=init$baseline)
 
-model.cis <- InitXseqModel(mut = mut.filt, expr = expr.quantile, expr.dis = expr.dis.quantile,
-                           cpd = init$cpd, cis = TRUE, prior = init$prior)
+model.trans <- InitXseqModel(mut = data.mut.filt,
+                             expr = expr.norm.quantile,
+                             net = net.filt,
+                             expr.dis = expr.dis.norm.quantile,
+                             cpd = init$cpd,
+                             cis = FALSE,
+                             prior = init$prior)
 
-model.cis.em <- LearnXseqParameter(model = model.cis, constraint = constraint, iter.max = 50, threshold = 1e-6)
+# EM algorithm for parameter estimations
+model.trans.em <- LearnXseqParameter(model = model.trans,
+                                     constraint = constraint,
+                                     iter.max = 50,
+                                     threshold = 1e-6)
 
-xseq.pred <- ConvertXseqOutput(model.cis.em$posterior)
-xseq.pred[1:20, ]
+# Reformat output
+xseq.trans.pred <- ConvertXseqOutput(model.trans.em$posterior)
+
+
 
 ```
 
