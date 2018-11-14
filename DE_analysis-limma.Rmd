@@ -11,60 +11,122 @@ Obtain lists of differentially expressed genes for the following comparisons:
 * JAK-STAT mutated patients vs. non-JAK-STAT mutated patients
 * mutated vs. non-mutated patients for each of the following genes:
     - JAK-STAT pathway: IL4R, SOCS1, STAT6, PTPN1, IL2RG, IL13RA1, JAK1, JAK2, JAK3, CISH, PTPN6, INPP5D, PTPN11
-    - Top 20 MutSig genes (based on frequency): SOCS1, ITPKB, STAT6, ZNF217, GNA13, IL4R, TNFAIP3, NFKBIE, ZFP36L1, VMP1, CIITA, IRF2BP2, PTPN1, JAK1, ACTB, CD58, HIST1H1B, IRF4, DDX3X
-    - IRF pathway (tentative): IRF2BP2, IRF8, IRF4, IRF1, CISH, IL13RA1, IL1RAPL2, IFNL3
+    - IRF pathway (new): 19 members (defined by Anja) - see text file for full list of genes
 
 NB: Expression values are per probe set, and are log-transformed and normalized (neqc). Outliers probes, probesets, and samples have been removed based on QC analysis.
+
+## Design matrix creation: extract mutation counts for genes of interest
+```{r}
+mutations <- read.table("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/mutation_summary-paired_and_unpaired.txt", sep = "\t", header = TRUE, fill = TRUE)
+
+# for our primary analysis, we should remove UTR mutations
+mutations <- subset(mutations, mutations$effect != "UTR_3_PRIME" & mutations$effect != "UTR_5_PRIME")
+
+# for secondary analysis, we may be interested in *only* UTR mutations
+#mutations <- subset(mutations, mutations$effect == "UTR_3_PRIME" | mutations$effect == "UTR_5_PRIME")
+mutations$effect <- factor(mutations$effect)
+
+# only need patient_id and gene to determine whether a patient is mutated in a given gene
+keeps <- c("patient_id", "gene")
+mutations <- unique(mutations[keeps])
+
+# extract genes of interest
+genes <- read.table("/Volumes/shung/projects/PMBCL_exomes/pathway_definitions/IRF/IRF.txt", header = FALSE)
+
+# filter mutations for genes of interest
+mutations <- mutations[mutations$gene %in% genes$V1, ]
+mutations$gene <- factor(mutations$gene)
+
+# now create a table for patient by gene
+mutations.table <- table(mutations$patient_id, mutations$gene)
+
+write.table(mutations.table, "/Volumes/shung/projects/PMBCL_exomes/DASL/data/mutations_no_UTR_table-IRF_new.txt", quote = FALSE, sep = "\t")
+#write.table(mutations.table, "/Volumes/shung/projects/PMBCL_exomes/DASL/data/mutations_UTR_only_table-IRF_new.txt", quote = FALSE, sep = "\t")
+```
 
 ## Load the data necessary for differential expression analysis
 
 ```{r}
-library(limma)
 library(tidyr)
 
 # load the design of the expression data
 #targets <- read.table("/Volumes/shung/projects/PMBCL_exomes/DASL/data/design-clinical+mutation_data.txt", sep = "\t", header = TRUE)
-#targets <- read.table("/Volumes/shung/projects/PMBCL_exomes/DASL/data/design-jak_mutated.txt", sep = "\t", header = TRUE)
-targets <- read.table("/Volumes/shung/projects/PMBCL_exomes/DASL/data/design-irf_mutated.txt", sep = "\t", header = TRUE)
+#targets <- read.table("/Volumes/shung/projects/PMBCL_exomes/DASL/data/design-jak_mutated_minus_SOCS1.txt", sep = "\t", header = TRUE)
+#targets <- read.table("/Volumes/shung/projects/PMBCL_exomes/DASL/data/design-jak_mutated_2+.txt", sep = "\t", header = TRUE)
+#targets <- read.table("/Volumes/shung/projects/PMBCL_exomes/DASL/data/design-jak_mutated_3+.txt", sep = "\t", header = TRUE) --> no significant differentially expressed genes
+#targets <- read.table("/Volumes/shung/projects/PMBCL_exomes/DASL/data/design-irf_mutated.txt", sep = "\t", header = TRUE)
+#targets <- read.table("/Volumes/shung/projects/PMBCL_exomes/DASL/data/design-irf_mutated_UTRs_included.txt", sep = "\t", header = TRUE)
+#targets <- read.table("/Volumes/shung/projects/PMBCL_exomes/DASL/data/design-irf_mutated_UTR_only.txt", sep = "\t", header = TRUE)
+# core members of the IRF pathway as defined by IRF2BP2, IRF4, and IRF8
+#targets <- read.table("/Volumes/shung/projects/PMBCL_exomes/DASL/data/design-core_irf_mutated.txt", sep = "\t", header = TRUE)
+# an slightly expaneded core of the IRF pathway as defined by IRF1, IRF2BP2, IRF4, and IRF8
+#targets <- read.table("/Volumes/shung/projects/PMBCL_exomes/DASL/data/design-core_v2_irf_mutated.txt", sep = "\t", header = TRUE)
+targets <- read.table("/Volumes/shung/projects/PMBCL_exomes/DASL/data/design-core_v1_irf_mutated-no_UTR.txt", sep = "\t", header = TRUE)
 
-# load the expression data
+# load expression data and aggregate gene expression values for genes (with multiple probes)
 expr.mat <- read.table("/Volumes/shung/projects/PMBCL_exomes/DASL/analysis/DASL-expression.norm.filtered.txt", sep = "\t", header = TRUE, row.names = 1)
 
-# extract only necessary columns
-#targets <- design.data[ ,c(25:75)]
-# convert design data from wide to long
-targets.long <- gather(targets, gene, mutation, ACTB:ZNF217, factor_key = TRUE)
+# We first need to aggregate genes that have multiple probeset ids (take the average)
+# First, convert from matrix to long format
+expr.mat.long <- gather(expr.mat, patient, expr, X05.23520:X04.26715)
+# remove one of the gene columns (they are duplicates)
+drops <- c("TargetID")
+expr.mat.long <- expr.mat.long[,!(names(expr.mat.long) %in% drops)]
+# now aggregate values for the same gene
+expr.mat.avg <- acast(expr.mat.long, patient ~ SYMBOL,
+                      fun.aggregate = mean,
+                      value.var = "expr"
+                      )
 
 # read in patients that should be removed, and patient ids to use for exome cases
 patients.to_remove <- scan(file = "/Volumes/shung/projects/PMBCL_exomes/DASL/data/patients_to_remove.txt", what = 'character')
 patients.exomes <- scan(file = "/Volumes/shung/projects/PMBCL_exomes/DASL/data/patient_ids.exomes.txt", what = 'character')
 
 # remove patients that do not have exomes
-expr.exomes <- expr.mat[ , !(names(expr.mat) %in% patients.to_remove)]
-# also remove extra gene columns
-drops <- c("SYMBOL", "TargetID")
-expr.exomes <- expr.exomes[ , !(names(expr.exomes) %in% drops)]
+expr.exomes <- expr.mat.avg[!(rownames(expr.mat.avg) %in% patients.to_remove), ]
+
 # rename res-ids (which start with with an "X" and have a dot instead of dash due to R constraints)
-colnames(expr.exomes) <- patients.exomes
+row.names(expr.exomes) <- patients.exomes
 
 # finally, remove patient that doesn't have mutation data (to match dimensions of design matrix)
 drops <- c("PA012")
-expr.exomes <- expr.exomes[, !(names(expr.exomes) %in% drops)]
+expr.exomes <- expr.exomes[!(row.names(expr.exomes) %in% drops), ]
+
+# load the expression data
+#expr.mat <- read.table("/Volumes/shung/projects/PMBCL_exomes/DASL/analysis/DASL-expression.norm.filtered.txt", sep = "\t", header = TRUE, row.names = 1)
+
+# read in patients that should be removed, and patient ids to use for exome cases
+#patients.to_remove <- scan(file = "/Volumes/shung/projects/PMBCL_exomes/DASL/data/patients_to_remove.txt", what = 'character')
+#patients.exomes <- scan(file = "/Volumes/shung/projects/PMBCL_exomes/DASL/data/patient_ids.exomes.txt", what = 'character')
+
+# remove patients that do not have exomes
+#expr.exomes <- expr.mat[ , !(names(expr.mat) %in% patients.to_remove)]
+# also remove extra gene columns
+#drops <- c("SYMBOL", "TargetID")
+#expr.exomes <- expr.exomes[ , !(names(expr.exomes) %in% drops)]
+# rename res-ids (which start with with an "X" and have a dot instead of dash due to R constraints)
+#colnames(expr.exomes) <- patients.exomes
+
+# finally, remove patient that doesn't have mutation data (to match dimensions of design matrix)
+#drops <- c("PA012")
+#expr.exomes <- expr.exomes[, !(names(expr.exomes) %in% drops)]
 
 ```
 
 ## Use limmma for differential expression analysis
 
 ```{r}
+library(limma)
 # Note to self: apparently all limma functions will accept a matrix of log2 ratios (e.g. lmFit should be able to accept a matrix)
 # only look at one gene for now
-targets.temp <- subset(targets.long, targets.long$gene == "ITPKB")
-targets.temp$gene <- factor(targets.temp$gene)
-targets.temp <- targets
+#targets.temp <- subset(targets.long, targets.long$gene == "ITPKB")
+#targets.temp$gene <- factor(targets.temp$gene)
+#targets.temp <- targets
 
 #f <- paste(targets.temp$gene, targets.temp$mutation, sep = ".")
 #f <- paste("mutated", targets$jak_mutated, sep = ".")
-f <- paste("mutated", targets$irf_mutated, sep = ".")
+#f <- paste("mutated", targets$irf_mutated, sep = ".")
+f <- paste("mutated", targets$core.irf_mutated, sep = ".")
 f <- factor(f)
 design <- model.matrix(~0+f)
 colnames(design) <- levels(f)
@@ -82,12 +144,13 @@ fit2 <- eBayes(fit2)
 ## Output data to text file - (1) top differentially expressed genes, (2) normalized expression data matrix
 
 ```{r}
-#topTable(fit2, number=20)
 top_table <- topTable(fit2, number = 30000)
-#top_table <- topTable(fit2, number = 464, p.value = 0.05) # JAK-STAT DE genes
-top_table <- topTable(fit2, number = 391, p.value = 0.05) # JAK-STAT DE genes
-#write.table(top_table, "/Volumes/shung/projects/PMBCL_exomes/DASL/analysis/top_table-jak_stat-mutant_V_wt.txt", sep="\t", quote = FALSE)
-write.table(top_table, "/Volumes/shung/projects/PMBCL_exomes/DASL/analysis/top_table-irf-mutant_V_wt.txt", sep="\t", quote = FALSE)
+#write.table(top_table, "/Volumes/shung/projects/PMBCL_exomes/DASL/analysis/top_table-jak_stat_minus_SOCS1_mutant_V_wt.txt", sep="\t", quote = FALSE)
+#write.table(top_table, "/Volumes/shung/projects/PMBCL_exomes/DASL/analysis/irf_pathway/top_table-irf-mutant_V_wt.txt", sep="\t", quote = FALSE)
+#write.table(top_table, "/Volumes/shung/projects/PMBCL_exomes/DASL/analysis/irf_pathway/top_table-irf-mutant_V_wt-UTR_only.txt", sep="\t", quote = FALSE)
+#write.table(top_table, "/Volumes/shung/projects/PMBCL_exomes/DASL/analysis/irf_pathway/top_table-core_irf-mutant_V_wt.txt", sep="\t", quote = FALSE)
+#write.table(top_table, "/Volumes/shung/projects/PMBCL_exomes/DASL/analysis/irf_pathway/top_table-core_v2_irf-mutant_V_wt.txt", sep="\t", quote = FALSE)
+write.table(top_table, "/Volumes/shung/projects/PMBCL_exomes/DASL/analysis/irf_pathway/top_table-core_v1_irf-mutant_V_wt-no_UTR.txt", sep="\t", quote = FALSE)
 
 # optional: print out expression values
 selected <- p.adjust(fit2$p.value, method = "BH") < 0.05
@@ -95,7 +158,7 @@ selected <- p.adjust(fit2$p.value, method = "BH") < 0.05
 expression_values <- expr.exomes[selected,]
 #expression_values <- exprs(esetSel)
 #write.table(expression_values, "/Volumes/shung/projects/PMBCL_exomes/DASL/analysis/top_table-jak_stat-mutated_V_wt-expression_values.txt", sep="\t", quote = FALSE)
-write.table(expression_values, "/Volumes/shung/projects/PMBCL_exomes/DASL/analysis/top_table-irf-mutated_V_wt-expression_values.txt", sep="\t", quote = FALSE)
+write.table(expression_values, "/Volumes/shung/projects/PMBCL_exomes/DASL/analysis/irf_pathway/top_table-irf-mutated_V_wt-expression_values.txt", sep="\t", quote = FALSE)
 ```
 
 ## Visualize the differentially expressed genes
@@ -149,6 +212,20 @@ ggplot(top20.sigDE.norm_expr.melted) +
 ## Volcano plot of the differentially expressed genes
 
 ```{r}
+# first add gene names to the data
+source ("/Volumes/shung/scripts/addNewData.R")
+allowedVars <- c("gene")
+top_table$probeset_id <- row.names(top_table)
+top_table <- addNewData("/Volumes/shung/projects/PMBCL_exomes/DASL/data/dataNew-probeset_to_gene.csv", 
+                        top_table, 
+                        allowedVars)
+
+# remove rows that contain "orf" in the gene name
+top_table <- unique(rbind(
+                top_table[!grepl("orf", top_table$gene), ]))
+
+# OPTION 1 for labelling genes: only label genes that are significant (adjusted p<0.05) and have ABS(logFC) > 0.75
+
 # obtain logical vector containing information on whether p-adjusted values are < 0.05
 threshold_DE.logFC <- abs(top_table$logFC) > 0.75
 threshold_DE.adjPval <- abs(top_table$adj.P.Val) < 0.05
@@ -171,21 +248,44 @@ num_sig.genes <- nrow(subset(results_de.ordered_logFC_and_adjPval ,
 results_de.ordered_logFC_and_adjPval$genelabels <- ""
 results_de.ordered_logFC_and_adjPval$genelabels[1:num_sig.genes] <- results_de.ordered_logFC_and_adjPval$gene[1:num_sig.genes]
 
+# OPTION 2 for labelling genes: only label significant genes (adjusted p<0.05) and is a GOI
+
+goi <- ifelse(top_table$gene %in% c("CCND2", 
+                                    "RELB", 
+                                    "MYC", 
+                                    "STAT3", 
+                                    "JAK2", 
+                                    "STAT1", 
+                                    "DDX3X", 
+                                    "EP300", 
+                                    "ACTB"), TRUE, FALSE)
+top_table$goi <- goi
+results_de.ordered_GOI <- top_table[rev((order(top_table$goi))), ]
+# then sort by threshold_DE.adjPval
+results_de.ordered_GOI_and_adjPval <- results_de.ordered_GOI[
+  with(results_de.ordered_GOI, rev(order(threshold_DE.adjPval, goi))),
+]
+num_sig.genes <- nrow(subset(results_de.ordered_GOI_and_adjPval, goi == TRUE & threshold_DE.adjPval == TRUE))
+results_de.ordered_GOI_and_adjPval$genelabels <- ""
+results_de.ordered_GOI_and_adjPval$genelabels[1:num_sig.genes] <- results_de.ordered_GOI_and_adjPval$gene[1:num_sig.genes]
+
 # volcano plot
 y_axis_label <- expression(paste("-",Log[10], "(P-value)"))
-#x_axis_label <- expression(paste(Log[2], " fold change (JAK-STAT WT - Mutant)"))
-x_axis_label <- expression(paste(Log[2], " fold change (IRF WT - Mutant)"))
+#x_axis_label <- expression(paste(Log[2], " fold change (JAK-STAT Mutant - WT)"))
+x_axis_label <- expression(paste(Log[2], " fold change (IRF Mutant - WT)"))
 #plot_title <- "Effect of mutations in Jak-Stat Pathway on gene expression"
 plot_title <- "Effect of mutations in IRF Pathway on gene expression"
 
+results.to_plot <- results_de.ordered_GOI_and_adjPval
+
 # volcano plot with gene names
-p2 <- ggplot(results_de.ordered_logFC_and_adjPval) +
+p2 <- ggplot(results.to_plot) +
   geom_point(aes(x=logFC, y=-log10(adj.P.Val), colour=threshold_DE.adjPval)) +
-  geom_text_repel(aes(x = logFC, y = -log10(adj.P.Val), label = results_de.ordered_logFC_and_adjPval$genelabels)) +
+  geom_text_repel(aes(x = logFC, y = -log10(adj.P.Val), label = results.to_plot$genelabels)) +
   ggtitle(plot_title) +
   xlab(x_axis_label) + 
   ylab(y_axis_label) +
-  theme(legend.position = "none",
+  theme(legend.position = "none", 
         plot.title = element_text(size = rel(1.5), hjust = 0.5),
         axis.title = element_text(size = rel(1.25))) +
   geom_hline(yintercept = -log10(0.05), linetype="dashed") +
@@ -206,19 +306,32 @@ DESeq2::plotMA(ma, ylim=c(-2,2))
 
 ```{r}
 # extract data for significant genes
-sigDE <- subset(results_de.ordered_logFC_and_adjPval, results_de.ordered_logFC_and_adjPval$adj.P.Val < 0.05)
+sigDE <- subset(results_de.ordered_logFC_and_adjPval, 
+                results_de.ordered_logFC_and_adjPval$adj.P.Val < 0.05 &
+                  abs(results_de.ordered_logFC_and_adjPval$logFC) > 0.75)
 
 # extract expression data for signficant genes
 expr.sigDE <- expr.exomes[row.names(sigDE),]
+# rename rows to be gene names
+row.names(expr.sigDE) <- expr.sigDE$SYMBOL
+drops <- c("SYMBOL", "TargetID")
+expr.sigDE <- expr.sigDE[ , !(names(expr.sigDE) %in% drops)]
+# rename res-ids (which start with with an "X" and have a dot instead of dash due to R constraints)
+colnames(expr.sigDE) <- patients.exomes
+
+# finally, remove patient that doesn't have mutation data (to match dimensions of design matrix)
+drops <- c("PA012")
+expr.sigDE <- expr.sigDE[, !(names(expr.sigDE) %in% drops)]
 
 # draw heatmap using pheatmap
 annotation <- data.frame()
 
 # set colour palette
-heat_colours <- brewer.pal(4, "RdGy")
+heat_colours <- brewer.pal(10, "RdBu")
 
 # generate heatmap
-p <- ggplot(expr.sigDE, aes(variable, Name)) + geom_tile(aes(fill = rescale), colour = "white") + scale_fill_gradient(low = "white", high = "steelblue")
-#pheatmap(expr.sigDE, color = heat_colours, cluster_rows = TRUE, show_rownames = FALSE, scale = "row")
+#p <- ggplot(expr.sigDE, aes(variable, Name)) + geom_tile(aes(fill = rescale), colour = "white") + scale_fill_gradient(low = "white", high = "steelblue")
+
+pheatmap(expr.sigDE, color = heat_colours, cluster_rows = TRUE, show_rownames = TRUE, scale = "row")
 
 ```
