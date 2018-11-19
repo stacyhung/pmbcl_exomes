@@ -1,0 +1,70 @@
+---
+title: "SNV Heatmap"
+author: "Stacy Hung"
+date: "February 19, 2018"
+output: html_document
+---
+
+This script is used to generate plots for visualizing mutation data for the PMBCL exomes dataset.
+
+## Installation of GenVisR (optional)
+```{r}
+# NB: if you need to install this package, install it using devtools from the github source!!!
+# The bioconductor version of GenVisR is buggy (not compatible with required libraries)
+# Installing GenVisR may also require the installation of the VariantAnnotation pacakge (from bioconductor)
+library("VariantAnnotation")
+library("GenVisR")
+```
+
+## Read in the necessary data
+
+```{r}
+# read in mutation data
+mutations <- read.table("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/singles_and_pairs/singles_and_pairs.snvs_and_indels.somatic_modified_effects.removed_non_genes.singles_AF_filtered.maf", sep = "\t", header = TRUE, fill = TRUE)
+
+# load MutSig output (list of significantly mutated genes)
+sig.genes <- read.table("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_output/pairs/ensembl_ids_with_coverage_data_v3/pairs.snvs_indels.ensembl.coverage.v3.sig_genes.refseq.txt", sep = "\t", header = TRUE, na.strings = "NA")
+
+# load any metadata associated with the dataset
+gender <- read.table("/Volumes/shung/projects/PMBCL_exomes/data/gender.txt", sep = "\t", header = TRUE)
+lymph3cx <- read.table("/Volumes/shung/projects/PMBCL_exomes/data/lymph3cx.txt", sep = "\t", header = TRUE)
+ninep <- read.table("/Volumes/shung/projects/PMBCL_exomes/data/9p.txt", sep = "\t", header = TRUE)
+```
+
+## Oncoplots
+
+```{r}
+library(maftools)
+library(gridExtra)
+
+# standard list of significantly mutated genes, along with clinical data annotations
+clinData.df <- read.table("/Volumes/shung/projects/PMBCL_exomes/data/clinData.txt", sep = "\t", header = TRUE)
+
+# ALL mutations (not just ones in significant genes)
+mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/mutation_summary-paired_and_unpaired.maf", clinicalData = clinData.df)
+
+# MutSig genes (minus ORFs) ordered by mutation frequency
+sig.genes <- scan(file = "/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_output/pairs/ensembl_ids_with_coverage_data_v3/sig.genes.no_orfs.txt", what = 'character')
+
+# Top Xseq trans genes (P(D) > 0.8)
+xseq.trans_genes <- scan(file = "/Volumes/shung/projects/PMBCL_exomes/XSeq/analysis/trans-analysis-top_genes.txt", what = 'character')
+
+# combine the two lists for Fig 1
+fig1.genes <- c(sig.genes, xseq.trans_genes)
+
+# colours for annotation tracks
+annot.colors <- list(Gender = c("Female"="palevioletred1", "Male"="royalblue1"),
+               Lymph3Cx = c("PMBL"="mediumseagreen", 
+                            "ABC"="salmon1", 
+                            "GCB"="cyan3", 
+                            "Unclear"="black", 
+                            "No_data"="white"),
+               Status_9p = c("amplification"="firebrick3", "gain"="firebrick1", "neutral"="black"))
+
+# Standard mutation waterfall plot (oncoplot style), and with clinical annotations
+oncoplot(maf = mutations.maf, genes = fig1.genes, 
+         clinicalFeatures = c("Gender", "Lymph3Cx", "Status_9p"),
+         annotationColor = annot.colors, keepGeneOrder = TRUE,
+         legendFontSize = 12, drawColBar = FALSE)
+
+```
