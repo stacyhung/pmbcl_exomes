@@ -154,6 +154,7 @@ write.table(calls.all, "/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/
 ```{r}
 library(plyr)     # revalue
 library(reshape2)  # dcast
+library(dplyr)
 
 # classify snvs only (all indels are just indels)
 paired.indels <- subset(calls.all, calls.all$type == "indel")
@@ -190,8 +191,31 @@ paired.all.summary <- as.data.frame(table(paired.all$variant_class, paired.all$t
 colnames(paired.all.summary) <- c("variant_class", "tumor_id", "num_mutations")
 # convert from long to wide (patients are columns, rows are types of mutations)
 paired.all.summary.wide <- dcast(paired.all.summary, variant_class ~ tumor_id, value.var = "num_mutations")
+paired.all.summary.wide$PA012 <- NULL
 
+# Total number of protein-altering mutations:
+paired.all.summary.wide$total_paired <- rowSums(paired.all.summary.wide[,2:21])
 
+# Add new category to represent "nonsynonymous mutations": missense + nonsense
+paired.nonsynon <- as.data.frame(t(colSums(paired.all.summary.wide[c(1,3), 2:22])))
+paired.nonsynon <- paired.nonsynon %>%
+    mutate_if(is.factor, as.numeric)
+paired.nonsynon <- as.data.frame(cbind(variant_class = "nonsynonymous", paired.nonsynon))
+paired.nonsynon$total_paired <- rowSums(paired.nonsynon[, 2:22])
+paired.all.summary.wide <- rbind(paired.all.summary.wide, paired.nonsynon)
+
+# add another category - all mutations except for UTR and silent
+paired.somatic <- as.data.frame(t(colSums(paired.all.summary.wide[c(1,2,3,7), 2:21])))
+paired.somatic <- paired.somatic %>%
+    mutate_if(is.factor, as.numeric)
+paired.somatic <- as.data.frame(cbind(variant_class = "protein_altering", paired.somatic))
+paired.somatic$total_paired <- rowSums(paired.somatic[, 2:21])
+paired.all.summary.wide <- rbind(paired.all.summary.wide, paired.somatic)
+
+median.nonsynon <- median(as.numeric(paired.all.summary.wide[8, 2:21]))
+median.somatic <- median(as.numeric(paired.all.summary.wide[9, 2:21]))
+min.somatic <- min(as.numeric(paired.all.summary.wide[9, 2:21]))
+max.somatic <- max(as.numeric(paired.all.summary.wide[9, 2:21]))
 
 # -	Total of x potential protein-altering somatic mutations within x genes (x missense mutations, x nonsense mutations, x small indels, x non-exonic [5’ or 3’ UTR]) (or as percentages)
 #-	total somatic SNV/indels per case ranging from x to y
