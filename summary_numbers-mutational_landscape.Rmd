@@ -1,0 +1,255 @@
+---
+title: "SNV Heatmap"
+author: "Stacy Hung"
+date: "January 28th, 2018"
+output: html_document
+---
+
+This script summarizes the mutational landscape of PMBCL:
+
+* Total mutations (incl. 5' and 3' UTRs, and synonymous) + proportions (pie / bar chart?)
+* Breakdown of somatic protein-altering mutations (i.e. remove synonymous mutations)
+* Average / median numbers of mutations (after excl. UTR and synonymous mutations) - with range
+
+## Process mutations for paired samples
+
+```{r}
+#*************
+#*  VARSCAN  *
+#*************
+
+varscan.paired.calls <- read.table("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/paired/varscan/varsScan.all.paired-snps_and_indels-somatic_and_no_effect_filters.txt", sep = "\t", header = TRUE, fill = TRUE)
+
+# filter for effects (protein-altering, synonymous, and UTRs)
+# the main idea is to remove intronic / intragenic and mutations that are not annotated to have an effect (blank / NONE / EXON)
+varscan.paired.calls <- unique(rbind(
+                varscan.paired.calls[grep("FRAME_SHIFT", varscan.paired.calls$effect), ],
+                varscan.paired.calls[grep("SPLICE_SITE_ACCEPTOR", varscan.paired.calls$effect), ],
+                varscan.paired.calls[grep("SPLICE_SITE_DONOR", varscan.paired.calls$effect), ],
+                varscan.paired.calls[grep("CODON_CHANGE_PLUS_CODON_DELETION", varscan.paired.calls$effect), ],
+                varscan.paired.calls[grep("CODON_DELETION", varscan.paired.calls$effect), ],
+                varscan.paired.calls[grep("CODON_INSERTION", varscan.paired.calls$effect), ],
+                varscan.paired.calls[grep("NON_SYNONYMOUS_CODING", varscan.paired.calls$effect), ],
+                varscan.paired.calls[grep("NON_SYNONYMOUS_START", varscan.paired.calls$effect), ],
+                varscan.paired.calls[grep("START_GAINED", varscan.paired.calls$effect), ],
+                varscan.paired.calls[grep("START_LOST", varscan.paired.calls$effect), ],
+                varscan.paired.calls[grep("STOP_GAINED", varscan.paired.calls$effect), ],
+                varscan.paired.calls[grep("STOP_LOST", varscan.paired.calls$effect), ],
+                varscan.paired.calls[grep("UTR_3_PRIME", varscan.paired.calls$effect), ],
+                varscan.paired.calls[grep("UTR_5_PRIME", varscan.paired.calls$effect), ],
+                varscan.paired.calls[grep("SYNONYMOUS_CODING", varscan.paired.calls$effect), ],
+                varscan.paired.calls[grep("SYNONYMOUS_STOP", varscan.paired.calls$effect), ]
+                ))
+
+# add key to combine with other datasets
+varscan.paired.calls$combine = as.character(paste(
+  varscan.paired.calls$tumor_id, 
+  varscan.paired.calls$chr, 
+  varscan.paired.calls$pos, 
+  varscan.paired.calls$ref,
+  varscan.paired.calls$alt,
+  sep = "."
+  ))
+
+varscan.paired.calls$effect <- factor(varscan.paired.calls$effect)
+varscan.paired.calls <- arrange(varscan.paired.calls, tumor_id, chr, pos)
+
+write.table(varscan.paired.calls, "/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/paired/varscan/varsScan.all.paired-snps_and_indels-protein_altering_OR_synonymous_or_UTRs.txt", sep = "\t", quote = FALSE, row.names = FALSE)
+
+#************
+#*  MUTECT  *
+#************
+mutect.snvs <- read.table("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/paired/mutect/mutect.all.snps.pass.txt", sep = "\t", header = TRUE, fill = TRUE)
+
+# create a tumor_id column based on the sample id (format is same as varscan, but without scroll letter)
+mutect.snvs$tumor_id <- gsub("(.*)\\_(.*)","\\1", mutect.snvs$sample)
+
+mutect.snvs$combine = as.character(paste(
+  mutect.snvs$tumor_id,
+  mutect.snvs$contig,
+  mutect.snvs$position,
+  mutect.snvs$ref_allele,
+  mutect.snvs$alt_allele,
+  sep = "."
+))
+
+mutect.snvs$type = "snv"
+
+#*************
+#*  STRELKA  *
+#*************
+
+strelka.snvs <- read.table("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/paired/strelka/all.passed.somatic.snvs.vcf", sep = "\t", header = FALSE)
+strelka.indels <- read.table("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/paired/strelka/all.passed.somatic.indels.vcf", sep = "\t", header = FALSE)
+
+# combine snvs and indels - add mutation type as separate "type" column
+strelka.indels$type = "indel"
+strelka.snvs$type = "snv"
+strelka.calls <- rbind(strelka.indels, strelka.snvs)
+
+rm(strelka.indels)
+rm(strelka.snvs)
+
+# extract only columns of interest
+strelka.calls <- strelka.calls[,c("V1", "V2", "V3", "V5", "V6", "type")]
+
+# assign column names to strelka datasets
+colnames(strelka.calls) <- c("sample", "chr", "pos", "ref", "alt", "type")
+
+strelka.calls$combine = as.character(paste(
+  strelka.calls$sample,
+  strelka.calls$chr,
+  strelka.calls$pos,
+  strelka.calls$ref,
+  strelka.calls$alt,
+  sep = "."
+))
+
+#****************************************
+#*  COMBINE VARSCAN + MUTECT + STRELKA  *
+#****************************************
+
+# Find the intersection of varscan (snvs), mutect, and strelka (snvs).
+combine.varscan.intersect.strelka <- intersect(unique(varscan.paired.calls$combine), unique(strelka.calls$combine))
+combine.intersect.all <- intersect(unique(combine.varscan.intersect.strelka), unique(mutect.snvs$combine))
+snvs.intersect.all <- subset(varscan.paired.calls, varscan.paired.calls$combine %in% combine.intersect.all)
+snvs.intersect.all$evidence <- "mutect, strelka, varscan"
+
+# add indels
+# Take the intersect of indels from varscan and strelka indel calls.
+varscan.indels <- subset(varscan.paired.calls, varscan.paired.calls$type == 'indel')
+strelka.indels <- subset(strelka.calls, strelka.calls$type == 'indel')
+combine.varscan.intersect.strelka <- intersect(unique(varscan.indels$combine), unique(strelka.indels$combine))
+indels.intersect.all <- subset(varscan.paired.calls, varscan.paired.calls$combine %in% combine.varscan.intersect.strelka)
+indels.intersect.all$evidence <- "strelka, varscan"
+
+# now combine snvs and indels
+calls.all <- rbind(snvs.intersect.all, indels.intersect.all)
+
+rm(varscan.paired.calls)
+rm(strelka.calls)
+rm(mutect.snvs)
+rm(combine.varscan.intersect.strelka)
+rm(combine.intersect.all)
+rm(snvs.intersect.all)
+rm(varscan.indels)
+rm(strelka.indels)
+rm(indels.intersect.all)
+
+# remove NA's and blanks for functional class
+calls.all$fun_class[calls.all$fun_class==""] <- "NONE"
+calls.all$fun_class[is.na(calls.all$fun_class)] <- "NONE"
+
+calls.all <- arrange(calls.all, tumor_id, chr, pos)
+
+# remove PA012
+failures <- c("PA012")
+calls.all <- subset(calls.all, !(calls.all$tumor_id %in% failures))
+
+# write the results to a text file
+write.table(calls.all, "/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/paired/calls.integration/snv_indels-integration-protein_altering_OR_synonymous_OR_UTRs.txt", sep = "\t", quote = FALSE, row.names = FALSE)
+```
+
+## Summary statistics for paired samples
+```{r}
+library(plyr)     # revalue
+library(reshape2)  # dcast
+
+# classify snvs only (all indels are just indels)
+paired.indels <- subset(calls.all, calls.all$type == "indel")
+paired.indels$variant_class <- "small indel"
+
+paired.snvs <- subset(calls.all, calls.all$type == "snv")
+paired.snvs$effect <- factor(paired.snvs$effect)
+
+# condense effects into a few categories:
+effect.to.var_class <- c(
+                            "NON_SYNONYMOUS_CODING"="missense",
+                            "NON_SYNONYMOUS_START"="missense",
+                            "STOP_LOST"="missense",
+                            
+                            "SPLICE_SITE_ACCEPTOR"="splice site",
+                            "SPLICE_SITE_DONOR"="splice site",
+                            
+                            "STOP_GAINED"="nonsense",
+                            "START_LOST"="nonsense",
+                            
+                            "SYNONYMOUS_CODING"="silent",
+                            "SYNONYMOUS_STOP"="silent",
+                            
+                            "UTR_3_PRIME"="3'UTR",
+                            "UTR_5_PRIME"="5'UTR"
+                            )
+paired.snvs$variant_class <- revalue(paired.snvs$effect, effect.to.var_class)
+
+# combine snvs + indels again to get a high-level summary of all paired mutations
+paired.all <- rbind(paired.snvs, paired.indels)
+
+# create table outlining numbers of each type mutation across patients
+paired.all.summary <- as.data.frame(table(paired.all$variant_class, paired.all$tumor_id))
+colnames(paired.all.summary) <- c("variant_class", "tumor_id", "num_mutations")
+# convert from long to wide (patients are columns, rows are types of mutations)
+paired.all.summary.wide <- dcast(paired.all.summary, variant_class ~ tumor_id, value.var = "num_mutations")
+
+
+
+# -	Total of x potential protein-altering somatic mutations within x genes (x missense mutations, x nonsense mutations, x small indels, x non-exonic [5’ or 3’ UTR]) (or as percentages)
+#-	total somatic SNV/indels per case ranging from x to y
+#-	average of x somatic mutations and y nonsilent mutations per case (range ?)
+#-	high variability in mutation load?
+#-	After removal of UTR mutations; median number of mutations/case
+#-	Of the x mutations observed, x% were located in coding regions, and x% in UTRs
+#-	Amongst the x protein-altering mutations, x were missense, x nonsense, x splice site, and x small indels
+
+```
+
+## Process mutations for paired samples
+
+```{r}
+#all.merged.single_samples.varScan.snps.no_dbSNPs.txt
+
+
+```
+
+
+## Oncoplots
+
+```{r}
+library(maftools)
+library(gridExtra)
+
+# standard list of significantly mutated genes, along with clinical data annotations
+clinData.df <- read.table("/Volumes/shung/projects/PMBCL_exomes/data/clinData.v2.txt", sep = "\t", header = TRUE)
+
+# ALL mutations (not just ones in significant genes)
+mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/mutation_summary-paired_and_unpaired.maf", clinicalData = clinData.df)
+
+# MutSig genes (minus ORFs) ordered by mutation frequency
+sig.genes <- scan(file = "/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_output/pairs/ensembl_ids_with_coverage_data_v3/sig.genes.no_orfs.txt", what = 'character')
+
+# Top Xseq trans genes (P(D) > 0.8)
+xseq.trans_genes <- scan(file = "/Volumes/shung/projects/PMBCL_exomes/XSeq/analysis/trans/trans-analysis-top_genes.txt", what = 'character')
+
+# combine the two lists for Fig 1
+#fig1.genes <- c(sig.genes, xseq.trans_genes)
+fig1.genes <- c(sig.genes, "B2M")
+
+# colours for annotation tracks
+annot.colors <- list(Gender = c("Female"="palevioletred1", "Male"="royalblue1"),
+               Lymph3Cx = c("PMBL"="mediumseagreen", 
+                            "ABC"="salmon1", 
+                            "GCB"="cyan3", 
+                            "Unclear"="black", 
+                            "No_data"="white"),
+               Mediastinal = c("Yes"="mediumpurple1", "No"="black"))
+
+# Standard mutation waterfall plot (oncoplot style), and with clinical annotations
+oncoplot(maf = mutations.maf, 
+         genes = fig1.genes, 
+         clinicalFeatures = c("Gender", "Lymph3Cx", "Mediastinal"),
+         annotationColor = annot.colors, 
+         legendFontSize = 12, 
+         drawColBar = FALSE)
+
+# keepGeneOrder = TRUE,
+```
