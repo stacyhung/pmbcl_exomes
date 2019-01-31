@@ -156,10 +156,13 @@ write.table(calls.all, "/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/
 ```
 
 ## Summary statistics for paired samples
+
 ```{r}
 library(plyr)     # revalue
 library(reshape2)  # dcast
 library(dplyr)
+
+calls.all <- read.table("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/paired/calls.integration/snv_indels-integration-protein_altering_OR_synonymous_OR_UTRs.txt", sep = "\t", header = TRUE, fill = TRUE)
 
 # classify snvs only (all indels are just indels)
 paired.indels <- subset(calls.all, calls.all$type == "indel")
@@ -303,45 +306,44 @@ write.table(unpaired.all.summary.wide, "/Volumes/shung/projects/PMBCL_exomes/snv
 
 ```
 
-
-## Oncoplots
+## Visual summary
 
 ```{r}
-library(maftools)
-library(gridExtra)
+library(ggplot2)
+library(RColorBrewer)
+library(dplyr)
 
-# standard list of significantly mutated genes, along with clinical data annotations
-clinData.df <- read.table("/Volumes/shung/projects/PMBCL_exomes/data/clinData.v2.txt", sep = "\t", header = TRUE)
+# paired cohort - barplot showing # mutations, stacked by protein-altering vs. synonymous
+# Supplementary Figure (legend): Summary of mutations identified by WES in the discovery set. (A) Total mutations and mutation subtypes identified in each tumor. (B) Percentages of different mutation subtypes in all mutations identified in all tumors of the discovery set.
 
-# ALL mutations (not just ones in significant genes)
-mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/mutation_summary-paired_and_unpaired.maf", clinicalData = clinData.df)
+data.df <- as.data.frame(table(paired.all$tumor_id, paired.all$variant_class))
+colnames(data.df) <- c("tumor_id", "variant_class", "num_mutations")
 
-# MutSig genes (minus ORFs) ordered by mutation frequency
-sig.genes <- scan(file = "/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_output/pairs/ensembl_ids_with_coverage_data_v3/sig.genes.no_orfs.txt", what = 'character')
+# with UTR mutations
+p <- ggplot(data = data.df, aes(x = tumor_id, y = num_mutations, fill = variant_class)) + 
+  geom_bar(stat = "identity", width = 0.6) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_fill_discrete(name = "Variant Class") +
+  xlab("") + ylab("Number of mutations")
 
-# Top Xseq trans genes (P(D) > 0.8)
-xseq.trans_genes <- scan(file = "/Volumes/shung/projects/PMBCL_exomes/XSeq/analysis/trans/trans-analysis-top_genes.txt", what = 'character')
+# same plot, but without UTR mutations
+mutations.to_drop <- c("3'UTR", "5'UTR", "silent")
+data.df <- subset(data.df, !(data.df$variant_class %in% mutations.to_drop))
+data.df$variant_class <- factor(data.df$variant_class)
 
-# combine the two lists for Fig 1
-#fig1.genes <- c(sig.genes, xseq.trans_genes)
-fig1.genes <- c(sig.genes, "B2M")
+p <- ggplot(data = data.df, aes(x = tumor_id, y = num_mutations, fill = variant_class)) + 
+  geom_bar(stat = "identity", width = 0.6) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_fill_discrete(name = "Variant Class") +
+  xlab("") + ylab("Number of mutations")
 
-# colours for annotation tracks
-annot.colors <- list(Gender = c("Female"="palevioletred1", "Male"="royalblue1"),
-               Lymph3Cx = c("PMBL"="mediumseagreen", 
-                            "ABC"="salmon1", 
-                            "GCB"="cyan3", 
-                            "Unclear"="black", 
-                            "No_data"="white"),
-               Mediastinal = c("Yes"="mediumpurple1", "No"="black"))
+# with a specific order of variant classes
+p <- data.df %>%
+  mutate(variant_class = factor(variant_class, levels=c("nonsense", "missense", "splice site", "small indel"))) %>%
+  ggplot(aes(x = tumor_id, y = num_mutations, fill = variant_class)) +
+  geom_bar(stat="identity", width = 0.6) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_fill_discrete(name = "Variant Class") +
+  xlab("") + ylab("Number of mutations")
 
-# Standard mutation waterfall plot (oncoplot style), and with clinical annotations
-oncoplot(maf = mutations.maf, 
-         genes = fig1.genes, 
-         clinicalFeatures = c("Gender", "Lymph3Cx", "Mediastinal"),
-         annotationColor = annot.colors, 
-         legendFontSize = 12, 
-         drawColBar = FALSE)
-
-# keepGeneOrder = TRUE,
 ```
