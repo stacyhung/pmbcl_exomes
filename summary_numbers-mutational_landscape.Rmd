@@ -6,10 +6,15 @@ output: html_document
 ---
 
 This script summarizes the mutational landscape of PMBCL:
-
+----
 * Total mutations (incl. 5' and 3' UTRs, and synonymous) + proportions (pie / bar chart?)
 * Breakdown of somatic protein-altering mutations (i.e. remove synonymous mutations)
 * Average / median numbers of mutations (after excl. UTR and synonymous mutations) - with range
+
+Recall basic thresholds applied to variant calling pipelines:
+----
+Paired: VarScan + Mutect + Strelka -> VAF >= 10%, variant reads >= 10 -> effect filtering
+Unpaired: VarScan (singles analysis) -> VN filtering (high confidence) -> VAF >= 5%, variant reads >= 10 --> effect filtering
 
 ## Process mutations for paired samples
 
@@ -217,6 +222,8 @@ median.somatic <- median(as.numeric(paired.all.summary.wide[9, 2:21]))
 min.somatic <- min(as.numeric(paired.all.summary.wide[9, 2:21]))
 max.somatic <- max(as.numeric(paired.all.summary.wide[9, 2:21]))
 
+write.table(paired.all.summary.wide, "/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/paired/tables/paired.all.summary_table.incl_silent_and_UTR.txt", sep = "\t", quote = FALSE, row.names = FALSE)
+
 # -	Total of x potential protein-altering somatic mutations within x genes (x missense mutations, x nonsense mutations, x small indels, x non-exonic [5’ or 3’ UTR]) (or as percentages)
 #-	total somatic SNV/indels per case ranging from x to y
 #-	average of x somatic mutations and y nonsilent mutations per case (range ?)
@@ -227,11 +234,72 @@ max.somatic <- max(as.numeric(paired.all.summary.wide[9, 2:21]))
 
 ```
 
-## Process mutations for paired samples
+## Process mutations for unpaired samples
 
 ```{r}
-#all.merged.single_samples.varScan.snps.no_dbSNPs.txt
+library(plyr)     # revalue
+library(reshape2)  # dcast
+library(dplyr)
 
+# this dataset has already been filtered for VAF and variant reads, as well as effect (incl. UTR, but not synonymous)
+# NB: this dataset is missing indels
+varscan.unpaired.calls <- read.table("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/singles/PMBCL_exomes-singles_SNVs_indels-AF_filtered.txt", sep = "\t", header = TRUE)
+
+# exclude UTR mutations
+varscan.unpaired.calls <- unique(rbind(
+                varscan.unpaired.calls[grep("SPLICE_SITE_ACCEPTOR", varscan.unpaired.calls$effect), ],
+                varscan.unpaired.calls[grep("SPLICE_SITE_DONOR", varscan.unpaired.calls$effect), ],
+                varscan.unpaired.calls[grep("SPLICE_SITE_REGION", varscan.unpaired.calls$effect), ],
+                varscan.unpaired.calls[grep("NON_SYNONYMOUS_CODING", varscan.unpaired.calls$effect), ],
+                varscan.unpaired.calls[grep("NON_SYNONYMOUS_START", varscan.unpaired.calls$effect), ],
+                varscan.unpaired.calls[grep("START_GAINED", varscan.unpaired.calls$effect), ],
+                varscan.unpaired.calls[grep("START_LOST", varscan.unpaired.calls$effect), ],
+                varscan.unpaired.calls[grep("STOP_GAINED", varscan.unpaired.calls$effect), ],
+                varscan.unpaired.calls[grep("STOP_LOST", varscan.unpaired.calls$effect), ],
+                varscan.unpaired.calls[grep("UTR_3_PRIME", varscan.unpaired.calls$effect), ],
+                varscan.unpaired.calls[grep("UTR_5_PRIME", varscan.unpaired.calls$effect), ]
+                ))
+
+# condense effects into a few categories:
+effect.to.var_class <- c(
+                            "NON_SYNONYMOUS_CODING"="missense",
+                            "NON_SYNONYMOUS_START"="missense",
+                            "STOP_LOST"="missense",
+                            
+                            "SPLICE_SITE_ACCEPTOR"="splice site",
+                            "SPLICE_SITE_DONOR"="splice site",
+                            "SPLICE_SITE_REGION"="splice site",
+                            
+                            "STOP_GAINED"="nonsense",
+                            "START_LOST"="nonsense",
+                            
+                            "UTR_3_PRIME"="3'UTR",
+                            "UTR_5_PRIME"="5'UTR"
+                            )
+varscan.unpaired.calls$variant_class <- revalue(varscan.unpaired.calls$effect, effect.to.var_class)
+
+# create table outlining numbers of each type mutation across patients
+unpaired.summary <- as.data.frame(table(varscan.unpaired.calls$variant_class, varscan.unpaired.calls$sample))
+colnames(unpaired.summary) <- c("variant_class", "tumor_id", "num_mutations")
+# convert from long to wide (patients are columns, rows are types of mutations)
+unpaired.all.summary.wide <- dcast(unpaired.summary, variant_class ~ tumor_id, value.var = "num_mutations")
+
+# Total number of protein-altering mutations:
+unpaired.all.summary.wide$total_paired <- rowSums(unpaired.all.summary.wide[,2:75])
+
+# add another category - all mutations except for UTR
+unpaired.somatic <- as.data.frame(t(colSums(unpaired.all.summary.wide[c(1,2,3), 2:75])))
+unpaired.somatic <- unpaired.somatic %>%
+    mutate_if(is.factor, as.numeric)
+unpaired.somatic <- as.data.frame(cbind(variant_class = "protein_altering", unpaired.somatic))
+unpaired.somatic$total_paired <- rowSums(unpaired.somatic[, 2:75])
+unpaired.all.summary.wide <- rbind(unpaired.all.summary.wide, unpaired.somatic)
+
+median.somatic <- median(as.numeric(unpaired.all.summary.wide[6, 2:75]))
+min.somatic <- min(as.numeric(unpaired.all.summary.wide[6, 2:75]))
+max.somatic <- max(as.numeric(unpaired.all.summary.wide[6, 2:75]))
+
+write.table(unpaired.all.summary.wide, "/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/singles/table-unpaired.all.summary_table.incl_UTR.txt", sep = "\t", quote = FALSE, row.names = FALSE)
 
 ```
 
