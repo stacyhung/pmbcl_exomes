@@ -339,11 +339,24 @@ p <- ggplot(data = data.df, aes(x = tumor_id, y = num_mutations, fill = variant_
 
 # with a specific order of variant classes
 p <- data.df %>%
-  mutate(variant_class = factor(variant_class, levels=c("nonsense", "missense", "splice site", "small indel"))) %>%
+  mutate(variant_class = factor(variant_class, levels=c("missense", "nonsense", "splice site", "small indel"))) %>%
   ggplot(aes(x = tumor_id, y = num_mutations, fill = variant_class)) +
   geom_bar(stat="identity", width = 0.6) + 
   theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
   scale_fill_discrete(name = "Variant Class") +
-  xlab("") + ylab("Number of mutations")
+  xlab("") + ylab("Number of mutations") + 
+  scale_fill_manual(values=c("#8DD3C7", "#FFFFB3", "#BEBADA", "#FB8072"))
+
+
+# pie chart with all categories:
+data.df <- as.data.frame(table(paired.all$tumor_id, paired.all$variant_class))
+colnames(data.df) <- c("tumor_id", "variant_class", "num_mutations")
+
+bp <- data.df %>%
+  mutate(variant_class = factor(variant_class, levels=c("missense", "nonsense", "splice site", "small indel", "3'UTR", "5'UTR", "silent"))) %>%
+  ggplot(aes(x = "", y = num_mutations, fill = variant_class)) +
+  geom_bar(width = 1, stat = "identity")
+
+pie <- bp + coord_polar("y", start = 0) + scale_fill_brewer(palette="Set3") + ylab("") + xlab("")
 
 ```
