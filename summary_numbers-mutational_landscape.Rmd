@@ -376,19 +376,47 @@ varscan.paired.calls <- unique(rbind(
                 varscan.paired.calls[grep("UTR_5_PRIME", varscan.paired.calls$effect), ]
                 ))
 varscan.paired.calls$effect <- factor(varscan.paired.calls$effect)
-# get patients mutated by gene
-paired.patient_gene <- unique(varscan.paired.calls[,c("tumor_id", "gene")])
+varscan.paired.calls$gene <- factor(varscan.paired.calls$gene)
+
+# get patients mutated by gene and type of UTR mutation
+paired.patient_gene <- unique(varscan.paired.calls[,c("tumor_id", "effect", "gene")])
 # now get frequency each gene is mutated (i.e. number of patients that has mutation in the gene)
-paired.gene_freq <- as.data.frame(table(paired.patient_gene$gene))
-colnames(paired.gene_freq) <- c("gene", "num_patients_mutated")
+paired.gene_freq <- as.data.frame(table(paired.patient_gene$gene, paired.patient_gene$effect))
+colnames(paired.gene_freq) <- c("gene", "effect", "num_patients_mutated")
+
+# also get frequencies for UTR mutations in general (not divided by 3' and 5')
+paired.patient_gene.UTR_general <- unique(paired.patient_gene[, c("tumor_id", "gene")])
+paired.gene_freq.UTR_general <- as.data.frame(table(paired.patient_gene.UTR_general$gene))
+colnames(paired.gene_freq.UTR_general) <- c("gene", "num_patients_mutated")
+
 # calculate proportions of genes mutated based on n = 20
 paired.gene_freq$proportion <- paired.gene_freq$num_patients_mutated / NUM_PAIRED_EXOMES * 100
-# order genes by proportion of patients mutated
-paired.gene_freq <- paired.gene_freq[rev(order(paired.gene_freq$proportion)), ]
-# get top 100 most mutated
-paired.top100 <- paired.gene_freq[1:100,]
+paired.gene_freq.UTR_general$proportion <- paired.gene_freq.UTR_general$num_patients_mutated / NUM_PAIRED_EXOMES * 100
 
-write.table(paired.top100, "/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/UTRs/paired-top100_mutated_genes.txt", sep = "\t", quote = FALSE, row.names = FALSE)
+# reorganize table so that 3'UTR and 5'UTR numbers are side by side
+paired.gene_freq.3_utr <- filter(paired.gene_freq, paired.gene_freq$effect == 'UTR_3_PRIME')
+paired.gene_freq.5_utr <- filter(paired.gene_freq, paired.gene_freq$effect == 'UTR_5_PRIME')
+
+paired.gene_freq.combined <- paired.gene_freq.UTR_general
+paired.gene_freq.combined$UTR_3_PRIME.num_patients_mutated <- paired.gene_freq.3_utr$num_patients_mutated
+paired.gene_freq.combined$UTR_3_PRIME.proportion <- paired.gene_freq.3_utr$proportion
+paired.gene_freq.combined$UTR_5_PRIME.num_patients_mutated <- paired.gene_freq.5_utr$num_patients_mutated
+paired.gene_freq.combined$UTR_5_PRIME.proportion <- paired.gene_freq.5_utr$proportion
+
+# rename columns
+colnames(paired.gene_freq.combined) <- c("gene", "UTR_3or5_PRIME.num_patients_mutated", "UTR_3or5_PRIME.proportion",
+                                         "UTR_3_PRIME.num_patients_mutated", "UTR_3_PRIME.proportion",
+                                         "UTR_5_PRIME.num_patients_mutated", "UTR_5_PRIME.proportion")
+
+# order genes by proportion of patients mutated
+paired.gene_freq.combined <- paired.gene_freq.combined[rev(order(paired.gene_freq.combined$UTR_3or5_PRIME.proportion)), ]
+# get top 100 most mutated
+paired.top100 <- paired.gene_freq.combined[1:100,]
+
+write.table(paired.top100, "/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/UTRs/paired-top100_mutated_genes.v2.txt", sep = "\t", quote = FALSE, row.names = FALSE)
+
+# write out all results
+write.table(paired.gene_freq.combined, "/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/UTRs/paired-all_UTR_mutated_genes.txt", sep = "\t", quote = FALSE, row.names = FALSE)
 
 ## UNPAIRED dataset
 
@@ -416,3 +444,85 @@ unpaired.top100 <- unpaired.gene_freq[1:100,]
 write.table(unpaired.top100, "/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/UTRs/unpaired-top100_mutated_genes.txt", sep = "\t", quote = FALSE, row.names = FALSE)
 
 ```
+
+## Get list of recurrently mutated genes for all mutations MINUS UTR - combined paired and unpaired
+
+```{r}
+## PAIRED dataset
+
+NUM_PAIRED_EXOMES = 20
+
+# load data
+varscan.paired.calls <- read.table("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/paired/varscan/varsScan.all.paired-snps_and_indels-somatic_and_no_effect_filters.txt", sep = "\t", header = TRUE, fill = TRUE)
+
+# remove PA012
+varscan.paired.calls <- subset(varscan.paired.calls, !(varscan.paired.calls$tumor_id %in% c("PA012")))
+varscan.paired.calls$tumor_id <- factor(varscan.paired.calls$tumor_id)
+
+# extract all protein-altering mutations except UTR mutations
+varscan.paired.calls <- unique(rbind(
+                varscan.paired.calls[grep("FRAME_SHIFT", varscan.paired.calls$effect), ],
+                varscan.paired.calls[grep("SPLICE_SITE_ACCEPTOR", varscan.paired.calls$effect), ],
+                varscan.paired.calls[grep("SPLICE_SITE_DONOR", varscan.paired.calls$effect), ],
+                varscan.paired.calls[grep("CODON_CHANGE_PLUS_CODON_DELETION", varscan.paired.calls$effect), ],
+                varscan.paired.calls[grep("CODON_DELETION", varscan.paired.calls$effect), ],
+                varscan.paired.calls[grep("CODON_INSERTION", varscan.paired.calls$effect), ],
+                varscan.paired.calls[grep("NON_SYNONYMOUS_CODING", varscan.paired.calls$effect), ],
+                varscan.paired.calls[grep("NON_SYNONYMOUS_START", varscan.paired.calls$effect), ],
+                varscan.paired.calls[grep("START_GAINED", varscan.paired.calls$effect), ],
+                varscan.paired.calls[grep("START_LOST", varscan.paired.calls$effect), ],
+                varscan.paired.calls[grep("STOP_GAINED", varscan.paired.calls$effect), ],
+                varscan.paired.calls[grep("STOP_LOST", varscan.paired.calls$effect), ],
+                varscan.paired.calls[grep("SYNONYMOUS_CODING", varscan.paired.calls$effect), ],
+                varscan.paired.calls[grep("SYNONYMOUS_STOP", varscan.paired.calls$effect), ]
+                ))
+varscan.paired.calls$effect <- factor(varscan.paired.calls$effect)
+varscan.paired.calls$gene <- factor(varscan.paired.calls$gene)
+# get patients mutated by gene
+paired.patient_gene <- unique(varscan.paired.calls[,c("tumor_id", "gene")])
+# now get frequency each gene is mutated (i.e. number of patients that has mutation in the gene)
+paired.gene_freq <- as.data.frame(table(paired.patient_gene$gene))
+colnames(paired.gene_freq) <- c("gene", "num_patients_mutated")
+# calculate proportions of genes mutated based on n = 20
+paired.gene_freq$proportion <- paired.gene_freq$num_patients_mutated / NUM_PAIRED_EXOMES * 100
+# order genes by proportion of patients mutated
+paired.gene_freq <- paired.gene_freq[rev(order(paired.gene_freq$proportion)), ]
+
+write.table(paired.gene_freq, "/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/paired/tables/pairs.gene_frequencies-no_UTR_mutations.txt", sep = "\t", quote = FALSE, row.names = FALSE)
+
+## UNPAIRED dataset
+
+NUM_UNPAIRED_EXOMES = 74
+
+# load data
+varscan.unpaired.calls <- read.table("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/singles/PMBCL_exomes-singles_SNVs_indels-AF_filtered.txt", sep = "\t", header = TRUE)
+
+# extract all protein-altering mutations except UTR mutations
+varscan.unpaired.calls <- unique(rbind(
+                varscan.unpaired.calls[grep("SPLICE_SITE_ACCEPTOR", varscan.unpaired.calls$effect), ],
+                varscan.unpaired.calls[grep("SPLICE_SITE_DONOR", varscan.unpaired.calls$effect), ],
+                varscan.unpaired.calls[grep("SPLICE_SITE_REGION", varscan.unpaired.calls$effect), ],
+                varscan.unpaired.calls[grep("NON_SYNONYMOUS_CODING", varscan.unpaired.calls$effect), ],
+                varscan.unpaired.calls[grep("NON_SYNONYMOUS_START", varscan.unpaired.calls$effect), ],
+                varscan.unpaired.calls[grep("START_LOST", varscan.unpaired.calls$effect), ],
+                varscan.unpaired.calls[grep("STOP_GAINED", varscan.unpaired.calls$effect), ],
+                varscan.unpaired.calls[grep("STOP_LOST", varscan.unpaired.calls$effect), ]
+                ))
+varscan.unpaired.calls$effect <- factor(varscan.unpaired.calls$effect)
+varscan.unpaired.calls$gene <- factor(varscan.unpaired.calls$gene)
+
+# get patients mutated by gene
+unpaired.patient_gene <- unique(varscan.unpaired.calls[, c("sample", "gene")])
+# now get frequency of each gene
+unpaired.gene_freq <- as.data.frame(table(unpaired.patient_gene$gene))
+colnames(unpaired.gene_freq) <- c("gene", "num_patients_mutated")
+# calculate proportion of genes mutated based on n = 74
+unpaired.gene_freq$proportion <- unpaired.gene_freq$num_patients_mutated / NUM_UNPAIRED_EXOMES * 100
+# order genes by porportion of patients mutated
+unpaired.gene_freq <- unpaired.gene_freq[rev(order(unpaired.gene_freq$proportion)),]
+
+write.table(unpaired.gene_freq, "/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/singles/unpaired.gene_frequencies-no_UTR_mutations.txt", sep = "\t", quote = FALSE, row.names = FALSE)
+
+```
+
+
