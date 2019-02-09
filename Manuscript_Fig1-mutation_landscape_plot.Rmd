@@ -12,8 +12,8 @@ This script is used to generate plots for visualizing mutation data for the PMBC
 # NB: if you need to install this package, install it using devtools from the github source!!!
 # The bioconductor version of GenVisR is buggy (not compatible with required libraries)
 # Installing GenVisR may also require the installation of the VariantAnnotation pacakge (from bioconductor)
-library("VariantAnnotation")
-library("GenVisR")
+library(VariantAnnotation)
+library(GenVisR)
 ```
 
 ## Read in the necessary data
@@ -27,8 +27,9 @@ sig.genes <- read.table("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_outp
 
 # load any metadata associated with the dataset
 gender <- read.table("/Volumes/shung/projects/PMBCL_exomes/data/gender.txt", sep = "\t", header = TRUE)
-lymph3cx <- read.table("/Volumes/shung/projects/PMBCL_exomes/data/lymph3cx.txt", sep = "\t", header = TRUE)
-ninep <- read.table("/Volumes/shung/projects/PMBCL_exomes/data/9p.txt", sep = "\t", header = TRUE)
+lymph3cx <- read.table("/Volumes/shung/projects/PMBCL_exomes/lymphc3x/lymph3cx.txt", sep = "\t", header = TRUE)
+mediastinal <- read.table("/Volumes/shung/projects/PMBCL_exomes/data/mediastinal.txt", sep = "\t", header = TRUE)
+#ninep <- read.table("/Volumes/shung/projects/PMBCL_exomes/data/9p.txt", sep = "\t", header = TRUE)
 ```
 
 ## Oncoplots
@@ -38,7 +39,7 @@ library(maftools)
 library(gridExtra)
 
 # standard list of significantly mutated genes, along with clinical data annotations
-clinData.df <- read.table("/Volumes/shung/projects/PMBCL_exomes/data/clinData.txt", sep = "\t", header = TRUE)
+clinData.df <- read.table("/Volumes/shung/projects/PMBCL_exomes/data/clinData.v2.txt", sep = "\t", header = TRUE)
 
 # ALL mutations (not just ones in significant genes)
 mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/mutation_summary-paired_and_unpaired.maf", clinicalData = clinData.df)
@@ -47,10 +48,11 @@ mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analys
 sig.genes <- scan(file = "/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_output/pairs/ensembl_ids_with_coverage_data_v3/sig.genes.no_orfs.txt", what = 'character')
 
 # Top Xseq trans genes (P(D) > 0.8)
-xseq.trans_genes <- scan(file = "/Volumes/shung/projects/PMBCL_exomes/XSeq/analysis/trans-analysis-top_genes.txt", what = 'character')
+xseq.trans_genes <- scan(file = "/Volumes/shung/projects/PMBCL_exomes/XSeq/analysis/trans/trans-analysis-top_genes.txt", what = 'character')
 
 # combine the two lists for Fig 1
-fig1.genes <- c(sig.genes, xseq.trans_genes)
+#fig1.genes <- c(sig.genes, xseq.trans_genes, "B2M")
+fig1.genes <- c(sig.genes, "B2M")
 
 # colours for annotation tracks
 annot.colors <- list(Gender = c("Female"="palevioletred1", "Male"="royalblue1"),
@@ -59,12 +61,77 @@ annot.colors <- list(Gender = c("Female"="palevioletred1", "Male"="royalblue1"),
                             "GCB"="cyan3", 
                             "Unclear"="black", 
                             "No_data"="white"),
-               Status_9p = c("amplification"="firebrick3", "gain"="firebrick1", "neutral"="black"))
+               Mediastinal = c("Yes"="mediumpurple1", "No"="black"))
 
 # Standard mutation waterfall plot (oncoplot style), and with clinical annotations
-oncoplot(maf = mutations.maf, genes = fig1.genes, 
-         clinicalFeatures = c("Gender", "Lymph3Cx", "Status_9p"),
-         annotationColor = annot.colors, keepGeneOrder = TRUE,
-         legendFontSize = 12, drawColBar = FALSE)
+oncoplot(maf = mutations.maf, 
+         genes = fig1.genes, 
+         clinicalFeatures = c("Gender", "Lymph3Cx", "Mediastinal"),
+         annotationColor = annot.colors, 
+         legendFontSize = 12, showTumorSampleBarcodes = TRUE,
+         drawColBar = FALSE)
+
+#####################################################
+# Split patients into discovery and extension cohorts
+#####################################################
+
+# standard list of significantly mutated genes, along with clinical data annotations 
+clinData.df <- read.table("/Volumes/shung/projects/PMBCL_exomes/data/clinData.v3.txt", sep = "\t", header = TRUE)
+
+# ALL mutations (not just ones in significant genes)
+mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/mutation_summary-paired_and_unpaired.maf", clinicalData = clinData.df)
+
+# MutSig genes (minus ORFs) ordered by mutation frequency
+sig.genes <- scan(file = "/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_output/pairs/ensembl_ids_with_coverage_data_v3/sig.genes.no_orfs.txt", what = 'character')
+
+# Top Xseq trans genes (P(D) > 0.8)
+xseq.trans_genes <- scan(file = "/Volumes/shung/projects/PMBCL_exomes/XSeq/analysis/trans/trans-analysis-top_genes.txt", what = 'character')
+
+# combine the two lists for Fig 1
+#fig1.genes <- c(sig.genes, xseq.trans_genes, "B2M")
+fig1.genes <- c(sig.genes, "B2M")
+
+# colours for annotation tracks
+annot.colors <- list(
+  Cohort = c("Discovery"="red", "Extension"="grey"),
+  Gender = c("Female"="palevioletred1", "Male"="royalblue1"),
+  Lymph3Cx = c("PMBL"="mediumseagreen", 
+                            "ABC"="salmon1", 
+                            "GCB"="cyan3", 
+                            "Unclear"="black", 
+                            "No_data"="white"),
+  Mediastinal = c("Yes"="mediumpurple1", "No"="black"))
+
+patients.ordered <- c("PA016", "PA073", "PA056", "PA002", "PA045", "PA072", "PA070", "PA018", "PA009", "PA010", "PA011", "PA003", "PA014", "PA069", "PA001", "PA013", "PA021", "PA017", "PA015", "PA034", "PA032", "PA033", "PA005", "PA062", "PA089", "PA027", "PA026", "PA086", "PA093", "PA042", "PA035", "PA053", "PA054", "PA031", "PA065", "PA076", "PA097", "PA064", "PA058", "PA008", "PA050", "PA067", "PA066", "PA004", "PA082", "PA068", "PA028", "PA052", "PA051", "PA079", "PA038", "PA024", "PA083", "PA096", "PA075", "PA037", "PA049", "PA006", "PA080", "PA091", "PA077", "PA020", "PA063", "PA088", "PA094", "PA022", "PA061", "PA029", "PA092", "PA041", "PA040", "PA048", "PA039", "PA043", "PA055", "PA044", "PA060", "PA036", "PA071", "PA057", "PA023", "PA007", "PA025", "PA059", "PA019", "PA085", "PA095", "PA047", "PA030", "PA078", "PA074", "PA084", "PA087", "PA081")
+
+oncoplot(maf = mutations.maf, 
+         genes = fig1.genes, 
+         clinicalFeatures = c("Cohort", "Gender", "Lymph3Cx", "Mediastinal"),
+         annotationColor = annot.colors, 
+         legendFontSize = 12, showTumorSampleBarcodes = TRUE,
+         drawColBar = FALSE, sampleOrder = patients.ordered, removeNonMutated = FALSE)
+
+```
+
+## Generate matrix to manually define order of patients in oncoplot using excel to sort
+
+```{r}
+library(dplyr)
+
+mutations <- read.table("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/mutation_summary-paired_and_unpaired.maf", sep = "\t", header = TRUE, fill = TRUE)
+
+# only look at whether a patient is mutated or not (hence unique)
+mutations <- unique(mutations[, c("Hugo_Symbol", "Tumor_Sample_Barcode")])
+
+sig.genes <- scan(file = "/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_output/pairs/ensembl_ids_with_coverage_data_v3/sig.genes.no_orfs.txt", what = 'character')
+
+fig1.genes <- c(sig.genes, "B2M")
+
+mutations <- filter(mutations, mutations$Hugo_Symbol %in% fig1.genes)
+mutations$Hugo_Symbol <- factor(mutations$Hugo_Symbol)
+
+mutation.matrix <- table(mutations$Hugo_Symbol, mutations$Tumor_Sample_Barcode)
+
+write.table(mutation.matrix, "/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/mutation_matrix.0_or_1.fig1_genes.txt", sep = "\t", quote = FALSE)
 
 ```
