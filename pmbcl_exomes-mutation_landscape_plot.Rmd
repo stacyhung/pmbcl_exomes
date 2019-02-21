@@ -265,8 +265,13 @@ vafPlot <- plotVaf(maf = mutations.maf, genes = sig.genes, vafCol = 'VAF',
 # plot VAF for top recurrently mutated genes (n=73)
 vafPlot <- plotVaf(maf = mutations.maf, genes = supptable2$gene_hugo, vafCol = 'VAF', showN = FALSE)
 
-# Plotting VAF for the union of MutSig and recurrently mutated genes (n=123)
+# Plotting VAF for the union of MutSig and recurrently mutated genes (n=101)
 vafPlot <- plotVaf(maf = mutations.maf, genes = sfig4.genes, vafCol = 'VAF', showN = FALSE, top=123)
+
+# plot VAF for recurrently mutated genes (NOT in MutSig)
+supptable2.not_MutSig <- subset(supptable2, !(supptable2$significant == 'y'))
+vafPlot <- plotVaf(maf = mutations.maf, genes = supptable2.not_MutSig$gene_hugo, vafCol = 'VAF', showN = FALSE)
+
 ```
 
 ## Lollipop plots
