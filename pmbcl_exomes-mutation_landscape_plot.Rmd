@@ -132,11 +132,11 @@ library(maftools)
 library(gridExtra)
 
 # standard list of significantly mutated genes, along with clinical data annotations
-#clinData.df <- read.table("/Volumes/shung/projects/PMBCL_exomes/data/clinData.txt", sep = "\t", header = TRUE)
+clinData.df <- read.table("/Volumes/shung/projects/PMBCL_exomes/data/clinData.txt", sep = "\t", header = TRUE)
 #mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/maftools/paired_and_unpaired.snvs_and_indels.sig_genes_v3.hugo_gene.AF_filtered.gene_filtered.with_VAF.unique.maf", clinicalData = clinData.df)
 
 # ALL mutations (not just ones in significant genes)
-#mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/mutation_summary-paired_and_unpaired.maf", clinicalData = clinData.df)
+mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/mutation_summary-paired_and_unpaired.maf", clinicalData = clinData.df)
 
 # ALL mutations *including* UTR mutations (and all genes)
 mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/mutation_summary-paired_and_unpaired_with_UTRs.maf", clinicalData = clinData.df, vc_nonSyn = c("Frame_Shift_Del", "Frame_Shift_Ins", "Splice_Site", "Translation_Start_Site","Nonsense_Mutation", "Nonstop_Mutation", "In_Frame_Del","In_Frame_Ins", "Missense_Mutation", "3'UTR", "5'UTR"))
@@ -180,6 +180,10 @@ oncoplot(maf = mutations.maf, genes = c("TLR2", "TLR4", "TLR5", "MYD88", "RELA",
 
 # IRF family members - for some reason oncoplot does not want to plot genes that have a UTR mutation (but will plot them if that patient has another type of non-UTR mutation) - perhaps try to reduce the maf to just the genes of interest, and add parameter removeNotMutatedGenes to TRUE...
 oncoplot(maf = mutations.maf, 
+         genes = c("IRF1", "IRF2BP2", "IRF4", "IRF8"), drawColBar = FALSE)
+oncoplot(maf = mutations.maf, 
+         genes = c("IRF1", "IRF2", "IRF2BP2", "IRF3", "IRF4", "IRF7", "IRF8", "IRF9"), drawColBar = FALSE)
+oncoplot(maf = mutations.maf, 
          genes = c("IRF1", "IRF2", "IRF2BP2", "IRF3", "IRF4", "IRF7", "IRF8", "IRF9"), drawColBar = FALSE, 
          colors = c("Frame_Shift_Del"="grey", 
                     "Frame_Shift_Ins"="grey", 
@@ -195,18 +199,18 @@ oncoplot(maf = mutations.maf,
                     "Multi_Hit"="black"))
 
 # oncoplot for JAK-STAT pathway
+
+# JAK-STAT genes (defined by Elena), sorted by mutation frequency
+genes.jak_stat <- c("SOCS1", "STAT6", "IL4R", "PTPN1", "JAK1", "CISH", "IL13RA1", "INPP5D", "PTPN6", "JAK2", "JAK3", "IL2RG", "PTPN11")
 # alternative names: IL2RG ~ IL2gc (gamma chain); PTPN6 ~ SHP1; INPP5D ~ SHIP1; PTPN11 ~ SHP2
-oncoplot(maf = mutations.maf, genes = c("IL4R",
-                                        "SOCS1",
-                                        "STAT6",
-                                        "PTPN1",
-                                        "IL2RG",
-                                        "IL13RA1",
-                                        "JAK1", "JAK2", "JAK3",
-                                        "CISH",
-                                        "PTPN6",
-                                        "INPP5D",
-                                        "PTPN11"))
+oncoplot(maf = mutations.maf, genes = genes.jak_stat)
+
+# oncoplot for JAK-STAT *and* IRF pathway
+
+# IRF pathway genes (combined IRF genes + Anja's list), sorted by mutation frequency
+genes.irf <- c("IRF2BP2", "IRF8", "IRF4", "IRF1", "BCL6", "STAT1", "NFKB1", "JAK2", "TLR5", "TRAF6", "IRAK4", "MYD88", "RELA", "TRAM1", "TICAM1", "IRAK1", "TLR2", "TLR4", "CD40")
+genes <- c(genes.jak_stat, genes.irf)
+oncoplot(maf = mutations.maf, genes = genes, keepGeneOrder = TRUE, drawColBar = FALSE, GeneOrderSort = FALSE)
 
 # oncoplot for predicted mutually exclusive genes
 oncoplot(maf = mutations.maf, genes = c("STAT6", "CISH", "GNA13", "IL4R", "HIST1H1B"), keepGeneOrder = TRUE)
@@ -236,10 +240,33 @@ oncoplot(maf = mutations.maf, genes = c("IRF2BP2", "ACTB"),
 laml.titv = titv(maf = mutations.maf, plot = FALSE, useSyn = FALSE)
 # plot titv summary
 plotTiTv(res = laml.titv)
+```
 
-# Plotting VAF
+## Plotting VAF
+
+```{r}
+library(dplyr)
+library(maftools)
+
+# load top recurrently mutated genes
+supptable2 <- read.table("/Volumes/shung/projects/PMBCL_exomes/manuscript/current/supplementary/supp_table_2.txt", sep = "\t", header = TRUE, fill = TRUE)
+
+mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/mutation_summary-paired_and_unpaired.maf")
+
+sig.genes <- c("SOCS1", "ITPKB", "STAT6", "GNA13", "NFKBIE", "PTPN1", "ZNF217", "IL4R", "ACTB", "HIST1H3D", "CD58", "IRF8", "SGPP1", "TNFAIP3", "GCSAM", "JUNB", "ZFP36L1", "RGS1", "HIST1H2BC", "HIST1H1C", "JAK1", "MS4A1", "SRSF1", "HIST1H1B", "EZH2", "IFNL3", "GDF11", "KLF9", "IL1RAPL2", "SERPINB3", "IGLJ2", "VMP1", "MYC", "LHFPL3", "TSPAN19", "IRF2BP2", "DDX3X", "CIITA", "IRF4", "CXCR5", "EPHA7", "IL13RA1", "CISH", "SPINK1", "TRAF3", "HIST1H4E", "HIST1H4J", "MAGEC2", "IRX2", "FPGT")
+recurrent.genes <- as.vector(unique(supptable2$gene_hugo))
+
+sfig4.genes <- as.vector(unique(c(sig.genes, recurrent.genes)))
+
+# Plotting VAF for MutSigCV 50 genes
 vafPlot <- plotVaf(maf = mutations.maf, genes = sig.genes, vafCol = 'VAF', 
                    flip = FALSE, top = 50, showN = FALSE)
+
+# plot VAF for top recurrently mutated genes (n=73)
+vafPlot <- plotVaf(maf = mutations.maf, genes = supptable2$gene_hugo, vafCol = 'VAF', showN = FALSE)
+
+# Plotting VAF for the union of MutSig and recurrently mutated genes (n=123)
+vafPlot <- plotVaf(maf = mutations.maf, genes = sfig4.genes, vafCol = 'VAF', showN = FALSE, top=123)
 ```
 
 ## Lollipop plots
@@ -352,8 +379,24 @@ results <- rainfallPlot(maf = mutations.maf, tsb = c("PA019", "PA043"),
 
 ```{r}
 library(maftools)
+library(dplyr)
 
+#mutations.df <- read.table("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/singles_and_pairs/singles_and_pairs.snvs_and_indels.somatic_modified_effects.removed_non_genes.singles_AF_filtered.maf", sep = "\t", header = TRUE, fill = TRUE)
+#
+## apply discovery cohort genes to extension cohort
+#cases.paired <- c("PA001", "PA002", "PA003", "PA009", "PA010", "PA011", "PA012", "PA013", "PA014", "PA015", "PA016", "PA017", "PA018", "PA021", "PA034", "PA045", "PA056", "PA069", "PA070", "PA072", "PA073")
+#
+#mutations.paired <- filter(mutations.df, mutations.df$Tumor_Sample_Barcode %in% cases.paired)
+#mutations.unpaired <- filter(mutations.df, !(mutations.df$Tumor_Sample_Barcode %in% cases.paired))
+#
+#genes.paired <- unique(mutations.paired$Hugo_Symbol)
+#mutations.unpaired <- filter(mutations.unpaired, mutations.unpaired$Hugo_Symbol %in% genes.paired)
+#
+#mutations.all <- rbind(mutations.paired, mutations.unpaired)
+#write.table(mutations.all, "/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/singles_and_pairs/singles_and_pairs.snvs_and_indels.somatic_modified_effects.removed_non_genes.singles_AF_filtered.discovery_cohort_genes.maf", sep = "\t", row.names = FALSE, quote = FALSE)
+#
 mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/singles_and_pairs/singles_and_pairs.snvs_and_indels.somatic_modified_effects.removed_non_genes.singles_AF_filtered.maf")
+#mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/singles_and_pairs/singles_and_pairs.snvs_and_indels.somatic_modified_effects.removed_non_genes.singles_AF_filtered.discovery_cohort_genes.maf")
 
 # first, extract adjacent bases to the mutated locus and classify them into 96 subsitution classes
 laml.tnm = trinucleotideMatrix(maf = mutations.maf, ref_genome = "~/Documents/references/GRCh37-lite.fa",
@@ -363,7 +406,7 @@ laml.tnm = trinucleotideMatrix(maf = mutations.maf, ref_genome = "~/Documents/re
 # By default, the function runs NMF on 6 ranks and chooses the best possible value based on maximum cophenetic-correlation coefficients (can also specify r).  Once decomposed, signatures are compared against known signatures derived from Alexandrov et al., and cosine similarity is calculated to identify the best match.
 
 library(NMF)
-laml.sign = extractSignatures(mat = laml.tnm, nTry = 6, plotBestFitRes = FALSE)
+laml.sign = extractSignatures(mat = laml.tnm, nTry = 3, plotBestFitRes = FALSE)
 #laml.sign = extractSignatures(mat = laml.tnm, nTry = 20, plotBestFitRes = FALSE)
 
 # Using 3 as a best-fit rank based on decreasing cophenetic correlation coefficient.
@@ -549,6 +592,7 @@ library(dplyr)
 
 # Define the list of genes within the IRF pathway (suggested by Anja + combined with important IRF family members)
 irf.genes <- c("TLR2", "TLR4", "TLR5", "MYD88", "RELA", "NFKB1", "TRAM1", "TICAM1", "TRAF6", "IRAK1", "IRAK4", "JAK2", "STAT1", "BCL6", "CD40", "IRF2BP2", "IRF8", "IRF4", "IRF1")
+irf.genes <- c("IRF2BP2", "IRF8", "IRF4", "IRF1", "IRF3", "IRF7", "IRF9")
 
 mutations <- read.table("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/mutation_summary-paired_and_unpaired.txt", sep = "\t", header = TRUE)
 
