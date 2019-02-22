@@ -254,7 +254,7 @@ supptable2 <- read.table("/Volumes/shung/projects/PMBCL_exomes/manuscript/curren
 mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/mutation_summary-paired_and_unpaired.maf")
 
 sig.genes <- c("SOCS1", "ITPKB", "STAT6", "GNA13", "NFKBIE", "PTPN1", "ZNF217", "IL4R", "ACTB", "HIST1H3D", "CD58", "IRF8", "SGPP1", "TNFAIP3", "GCSAM", "JUNB", "ZFP36L1", "RGS1", "HIST1H2BC", "HIST1H1C", "JAK1", "MS4A1", "SRSF1", "HIST1H1B", "EZH2", "IFNL3", "GDF11", "KLF9", "IL1RAPL2", "SERPINB3", "IGLJ2", "VMP1", "MYC", "LHFPL3", "TSPAN19", "IRF2BP2", "DDX3X", "CIITA", "IRF4", "CXCR5", "EPHA7", "IL13RA1", "CISH", "SPINK1", "TRAF3", "HIST1H4E", "HIST1H4J", "MAGEC2", "IRX2", "FPGT")
-recurrent.genes <- as.vector(unique(supptable2$gene_hugo))
+recurrent.genes <- as.vector(unique(supptable2$gene))
 
 sfig4.genes <- as.vector(unique(c(sig.genes, recurrent.genes)))
 
@@ -262,15 +262,15 @@ sfig4.genes <- as.vector(unique(c(sig.genes, recurrent.genes)))
 vafPlot <- plotVaf(maf = mutations.maf, genes = sig.genes, vafCol = 'VAF', 
                    flip = FALSE, top = 50, showN = FALSE)
 
-# plot VAF for top recurrently mutated genes (n=73)
-vafPlot <- plotVaf(maf = mutations.maf, genes = supptable2$gene_hugo, vafCol = 'VAF', showN = FALSE)
+# plot VAF for top recurrently mutated genes (n=95)
+vafPlot <- plotVaf(maf = mutations.maf, genes = supptable2$gene, vafCol = 'VAF', showN = FALSE)
 
-# Plotting VAF for the union of MutSig and recurrently mutated genes (n=101)
+# Plotting VAF for the union of MutSig and recurrently mutated genes (n=120)
 vafPlot <- plotVaf(maf = mutations.maf, genes = sfig4.genes, vafCol = 'VAF', showN = FALSE, top=123)
 
 # plot VAF for recurrently mutated genes (NOT in MutSig)
-supptable2.not_MutSig <- subset(supptable2, !(supptable2$significant == 'y'))
-vafPlot <- plotVaf(maf = mutations.maf, genes = supptable2.not_MutSig$gene_hugo, vafCol = 'VAF', showN = FALSE)
+supptable2.not_MutSig <- subset(supptable2, !(supptable2$mutsig == 'y'))
+vafPlot <- plotVaf(maf = mutations.maf, genes = supptable2.not_MutSig$gene, vafCol = 'VAF', showN = FALSE)
 
 ```
 
