@@ -1,0 +1,42 @@
+---
+title: "pmbcl_exomes-get_significant+recurrent_genes.Rmd"
+author: "Stacy Hung"
+date: "September 19, 2018"
+output: html_document
+---
+
+This script creates a table for mutation frequency (cases mutated) for paired, unpaired, and paired + unpaired, where UTR mutations are excluded.  This table should be the main data in Supp. Table 2.
+
+```{r}
+library(dplyr)
+
+mutations <- read.table("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/mutation_summary-paired_and_unpaired.txt", sep = "\t", header = TRUE, fill = TRUE)
+
+# filter out UTR mutations
+effect.UTR_mutations <- c("UTR_3_PRIME", "UTR_5_PRIME")
+mutations <- filter(mutations, !(mutations$effect %in% effect.UTR_mutations))
+
+# create tables for paired and unpaired data
+mutations.paired <- subset(mutations, mutations$normal == 'y')
+mutations.unpaired <- subset(mutations, !(mutations$normal == 'y'))
+
+# we only want to know how many cases are mutated for each gene
+mutations.all <- unique(mutations[, c("patient_id", "gene")])
+mutations.all$gene <- factor(mutations.all$gene)
+mutations.paired <- unique(mutations.paired[, c("patient_id", "gene")])
+mutations.paired$gene <- factor(mutations.paired$gene)
+mutations.unpaired <- unique(mutations.unpaired[, c("patient_id", "gene")])
+mutations.unpaired$gene <- factor(mutations.unpaired$gene)
+
+# now convert this 
+freqs.mutations.all <- table(mutations.all$gene)
+freqs.mutations.paired <- table(mutations.paired$gene)
+freqs.mutations.unpaired <- table(mutations.unpaired$gene)
+
+# write to output
+write.table(freqs.mutations.all, "/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/freq.mutation.no_UTR-all.txt", row.names = FALSE, quote = FALSE)
+write.table(freqs.mutations.paired, "/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/freq.mutation.no_UTR-pairs.txt", row.names = FALSE, quote = FALSE)
+write.table(freqs.mutations.unpaired, "/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/freq.mutation.no_UTR-unpaired.txt", row.names = FALSE, quote = FALSE)
+```
+
+
