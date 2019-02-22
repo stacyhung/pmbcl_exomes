@@ -39,29 +39,6 @@ mediastinal <- read.table("/Volumes/shung/projects/PMBCL_exomes/data/mediastinal
 library(maftools)
 library(gridExtra)
 
-# standard list of significantly mutated genes, along with clinical data annotations
-clinData.df <- read.table("/Volumes/shung/projects/PMBCL_exomes/data/clinData.v2.txt", sep = "\t", header = TRUE)
-
-# ALL mutations (not just ones in significant genes)
-mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/mutation_summary-paired_and_unpaired.maf", clinicalData = clinData.df)
-
-# colours for annotation tracks
-annot.colors <- list(Gender = c("Female"="palevioletred1", "Male"="royalblue1"),
-               Lymph3Cx = c("PMBL"="mediumseagreen", 
-                            "ABC"="salmon1", 
-                            "GCB"="cyan3", 
-                            "Unclear"="black", 
-                            "No_data"="white"),
-               Mediastinal = c("Yes"="mediumpurple1", "No"="black"))
-
-# Standard mutation waterfall plot (oncoplot style), and with clinical annotations
-oncoplot(maf = mutations.maf, 
-         genes = recurrent.genes, 
-         clinicalFeatures = c("Gender", "Lymph3Cx", "Mediastinal"),
-         annotationColor = annot.colors, 
-         legendFontSize = 12, showTumorSampleBarcodes = TRUE,
-         drawColBar = FALSE)
-
 #####################################################
 # Split patients into discovery and extension cohorts
 #####################################################
@@ -72,8 +49,9 @@ clinData.df <- read.table("/Volumes/shung/projects/PMBCL_exomes/data/clinData.v4
 # ALL mutations (not just ones in significant genes)
 mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/mutation_summary-paired_and_unpaired.maf", clinicalData = clinData.df)
 
-# MutSig genes (minus ORFs) ordered by mutation frequency
-sig.genes <- scan(file = "/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_output/pairs/ensembl_ids_with_coverage_data_v3/sig.genes.no_orfs.txt", what = 'character')
+# load top recurrently mutated genes
+supptable2 <- read.table("/Volumes/shung/projects/PMBCL_exomes/manuscript/current/supplementary/supp_table_2.txt", sep = "\t", header = TRUE, fill = TRUE)
+recurrent.genes <- as.vector(unique(supptable2$gene_hugo))
 
 # colours for annotation tracks
 annot.colors <- list(
@@ -86,12 +64,12 @@ annot.colors <- list(
                             "No_data"="white"),
   Biopsy_Site = c("Mediastinal"="mediumpurple1", "Non-mediastinal"="black"))
 
-patients.ordered <- c("PA016", "PA073", "PA056", "PA002", "PA045", "PA072", "PA070", "PA018", "PA009", "PA010", "PA011", "PA003", "PA014", "PA069", "PA001", "PA013", "PA021", "PA017", "PA015", "PA034", "PA032", "PA033", "PA005", "PA062", "PA089", "PA027", "PA026", "PA086", "PA093", "PA042", "PA035", "PA053", "PA054", "PA031", "PA065", "PA076", "PA097", "PA064", "PA058", "PA008", "PA050", "PA067", "PA066", "PA004", "PA082", "PA068", "PA028", "PA052", "PA051", "PA079", "PA038", "PA024", "PA083", "PA096", "PA075", "PA037", "PA049", "PA006", "PA080", "PA091", "PA077", "PA020", "PA063", "PA088", "PA094", "PA022", "PA061", "PA029", "PA092", "PA041", "PA040", "PA048", "PA039", "PA043", "PA055", "PA044", "PA060", "PA036", "PA071", "PA057", "PA023", "PA007", "PA025", "PA059", "PA019", "PA085", "PA095", "PA047", "PA030", "PA078", "PA074", "PA084", "PA087", "PA081")
+patients.ordered <- c("PA070", "PA011", "PA010", "PA072", "PA056", "PA045", "PA016", "PA002", "PA018", "PA009", "PA069", "PA014", "PA003", "PA073", "PA021", "PA017", "PA013", "PA001", "PA015", "PA034", "PA032", "PA031", "PA054", "PA076", "PA097", "PA042", "PA035", "PA067", "PA066", "PA082", "PA028", "PA075", "PA049", "PA091", "PA077", "PA038", "PA022", "PA062", "PA089", "PA093", "PA053", "PA050", "PA052", "PA005", "PA064", "PA027", "PA037", "PA063", "PA096", "PA094", "PA065", "PA026", "PA086", "PA058", "PA068", "PA006", "PA079", "PA024", "PA088", "PA020", "PA033", "PA008", "PA004", "PA051", "PA080", "PA083", "PA060", "PA057", "PA092", "PA055", "PA044", "PA023", "PA059", "PA036", "PA039", "PA048", "PA007", "PA061", "PA041", "PA043", "PA047", "PA040", "PA029", "PA025", "PA030", "PA019", "PA085", "PA071", "PA095", "PA081", "PA078", "PA074", "PA087", "PA084")
 
-genes.to_ignore <- c("FPGT", "IFNL3", "IRX2", "MS4A1", "GDF11", "SERPINB3", "TSPAN19", "ALX1", "KLF9", "LHFPL3", "SPINK1")
+genes.to_ignore <- c("MUC12")
 
 oncoplot(maf = mutations.maf, 
-         genes = fig1.genes, 
+         genes = recurrent.genes, 
          clinicalFeatures = c("Cohort", "Gender", "Lymph3Cx", "Biopsy_Site"),
          annotationColor = annot.colors, 
          legendFontSize = 12, showTumorSampleBarcodes = TRUE, genesToIgnore = genes.to_ignore,
@@ -111,7 +89,7 @@ mutations <- unique(mutations[, c("Hugo_Symbol", "Tumor_Sample_Barcode")])
 
 # load top recurrently mutated genes
 supptable2 <- read.table("/Volumes/shung/projects/PMBCL_exomes/manuscript/current/supplementary/supp_table_2.txt", sep = "\t", header = TRUE, fill = TRUE)
-recurrent.genes <- as.vector(unique(supptable2$gene_hugo))
+recurrent.genes <- as.vector(unique(supptable2$gene))
 
 mutations <- filter(mutations, mutations$Hugo_Symbol %in% recurrent.genes)
 mutations$Hugo_Symbol <- factor(mutations$Hugo_Symbol)
