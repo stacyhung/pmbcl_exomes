@@ -1,0 +1,166 @@
+---
+title: "mutation_frequency"
+author: "Stacy Hung"
+date: "January 10, 2017"
+output: html_document
+---
+
+This script generates Fig4, which contrasts mutational frequencies between PMBCL, DLBCL, and HL.
+
+Version 2 figures have been generated for panels B and C, which sort frequencies by average DLBCL and HL, respectively.
+
+## Load required libraries
+
+```{r}
+library(ggplot2)
+library(gridExtra)
+library(grid)
+library(lattice)
+```
+
+## A) Mutation frequencies of PMBCL MutSig genes compared to DLBCL (mutations obtained from strelka on Reddy dataset)
+
+```{r}
+# for significant genes in PMBCL:
+pmbcl.freq <- read.table("/Volumes/shung/projects/PMBCL_exomes/frequency_analysis/pmbcl-sig.gene_counts.txt", sep = "\t", header = TRUE)
+dlbcl.freq <- read.table("/Volumes/shung/projects/PMBCL_exomes/frequency_analysis/dlbcl_shipp_reddy/reddy-pmbcl_sig_genes-gene_counts.txt", sep = "\t", header = TRUE)
+
+NUM_EXOMES_PMBCL = 94
+NUM_EXOMES_DLBCL = 985
+
+# calculate proportion of cases that are mutated
+pmbcl.freq$proportion <- pmbcl.freq$Freq / NUM_EXOMES_PMBCL * 100
+dlbcl.freq$proportion <- dlbcl.freq$Freq / NUM_EXOMES_DLBCL * 100
+
+# label the datasets
+pmbcl.freq$dataset <- "Our study (n=94)"
+dlbcl.freq$dataset <- "Reddy et al. (n=985)"
+
+# Get additional DLBCL (non-driver genes) from /projects/mdata_dart/Analysis/Exome/StrelkaPipeline/
+# Frequency plot: our dataset (pairs+singles) and the Reddy et al. dataset re-analyzed with Strelka by the Morin Lab
+freq.data.pmbcl_V_dlbcl <- rbind(pmbcl.freq, dlbcl.freq)
+colnames(freq.data.pmbcl_V_dlbcl) <- c("gene", "freq", "proportion", "dataset")
+  
+# NEW: remove genes that are mutated < 5% (SPINK1, KLF9, LHFPL3)
+genes.to_exclude <- c("SPINK1", "KLF9", "LHFPL3")
+freq.data.pmbcl_V_dlbcl <- subset(freq.data.pmbcl_V_dlbcl, 
+                                     !(freq.data.pmbcl_V_dlbcl$gene %in% genes.to_exclude))
+
+freq.data.pmbcl <- subset(freq.data.pmbcl_V_dlbcl, freq.data.pmbcl_V_dlbcl$dataset == "Our study (n=94)")
+
+# reorder genes by increasing frequency in PMBCL dataset
+freq.data.pmbcl_V_dlbcl$gene <- factor(freq.data.pmbcl_V_dlbcl$gene, 
+                                       levels = freq.data.pmbcl_V_dlbcl$gene[order(freq.data.pmbcl$proportion)])
+
+panelA.pmbcl_V_dlbcl <- ggplot(data=freq.data.pmbcl_V_dlbcl, aes(x = gene, y = proportion, fill=dataset)) +
+  geom_bar(stat="identity", position=position_dodge(), width = 0.8) +
+  ylab("Cases mutated (%)") + xlab("") +
+  theme_bw() +
+  theme(legend.position="bottom") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size=14, vjust=0.5, face = "italic"),
+        axis.text.y  = element_text(size=14), 
+        axis.title.x = element_text(size = 18), 
+        axis.title.y = element_text(size = 18), 
+        legend.text = element_text(size=14), 
+        plot.margin = unit(c(1,1,1,1), "cm")) +
+  scale_fill_manual(values = c("steelblue4","firebrick1"),
+                    breaks = c("Our study (n=94)", 
+                               "Reddy et al. (n=985)"),
+                    labels = c("Our study (n=94)",
+                               "Reddy et al. (n=985)"),
+                    name = "")
+```
+
+## B) Frequency plot comparing our dataset (all samples) to two DLBCL datasets (Reddy and Shipp)
+
+```{r}
+library(tidyr)
+
+# read in frequency data for the 3 datasets
+freq.data <- read.table("/Volumes/shung/projects/PMBCL_exomes/frequency_analysis/dlbcl_shipp_reddy/PMBCL_DLBCL_Shipp_Reddy-gene_proportions_complete-Shipp+Reddy_genes.txt", sep = "\t", header = TRUE)
+
+# order bars by specified dataset:
+freq.data$dataset <- factor(freq.data$dataset, levels = c("Our study (n=94)", "Reddy et al. (n=1001)", "Chapuy, Shipp (n=304)"))
+
+# version 1: reorder by value of PMBCL frequency
+#freq.data.pmbcl <- subset(freq.data, freq.data$dataset == "Our study (n=94)")
+
+
+# version 2: reorder by average DLBCL frequency
+# convert to wide so we can sort by the pathology of interest
+freq.data.wide <- spread(freq.data, dataset, proportion)
+freq.data.wide$mean_dlbcl <- rowMeans(freq.data.wide[c("Reddy et al. (n=1001)", "Chapuy, Shipp (n=304)")])
+freq.data.wide <- freq.data.wide[order(freq.data.wide$mean), ]
+freq.data <- gather(freq.data.wide, dataset, proportion, `Our study (n=94)`:`Chapuy, Shipp (n=304)`)
+freq.data$gene <- factor(freq.data$gene, levels = freq.data$gene[order(freq.data.wide$mean_dlbcl)])
+
+panelB.dlbcl_V_dlbcl <- ggplot(data=freq.data, aes(x = gene, y = proportion, fill=dataset)) +
+  geom_bar(stat="identity", position=position_dodge(), width = 0.8) +
+  ylab("Cases mutated (%)") + xlab("") +
+  theme_bw() +
+  theme(legend.position="bottom") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size=14, vjust=0.5, face = "italic"),
+        axis.text.y  = element_text(size=14), 
+        axis.title.x = element_text(size = 18), 
+        axis.title.y = element_text(size = 18), 
+        legend.text = element_text(size=14), 
+        plot.margin = unit(c(1,1,1,1), "cm")) +
+  scale_fill_manual(values = c("orange", "steelblue4", "firebrick1"),
+                    breaks = c("Our study (n=94)", 
+                               "Reddy et al. (n=1001)",
+                               "Chapuy, Shipp (n=304)"),
+                    labels = c("Our study (n=94)",
+                               "Reddy et al. (n=1001)",
+                               "Chapuy, Shipp (n=304)"),
+                    name = "")
+
+# for version 1, use this ordering for fill colours: 
+# scale_fill_manual(values = c("steelblue4", "firebrick1", "orange"),
+
+```
+
+
+## C) Frequency plot comparing our dataset (all samples) to the HL Tiacci et al. dataset
+
+```{r}
+freq.data.hl <- read.table("/Volumes/shung/projects/PMBCL_exomes/frequency_analysis/hl_tiacci/hl_vs_pmbcl-tiacci_sig_genes.gene_proportions.txt", sep = "\t", header = TRUE)
+
+# version 1: keep order specified in input data
+#freq.data.hl$gene <- factor(freq.data.hl$gene, levels = freq.data.hl$gene)
+
+# version 2: reorder genes by increasing frequency in HL dataset
+# convert to wide so we can sort by the pathology of interest
+freq.data.hl.wide <- spread(freq.data.hl, dataset, proportion)
+freq.data.hl.wide <- freq.data.hl.wide[order(freq.data.hl.wide$`Tiacci et al. (n=34)`, freq.data.hl.wide$`Our study (n=94)`), ]
+freq.data.hl <- gather(freq.data.hl.wide, dataset, proportion, `Our study (n=94)`:`Tiacci et al. (n=34)`)
+freq.data.hl$gene <- factor(freq.data.hl$gene, levels = freq.data.hl$gene[order(freq.data.hl.wide$`Tiacci et al. (n=34)`)])
+
+
+#freq.data.hl$gene <- factor(freq.data.hl$gene, levels = freq.data.hl$gene[order(pmbcl.freq$proportion)])
+
+panelC.hl_V_pmbcl <- ggplot(data=freq.data.hl, aes(x = gene, y = proportion, fill=dataset)) +
+  geom_bar(stat="identity", position=position_dodge(), width = 0.8) +
+  ylab("Cases mutated (%)") + xlab("") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size=14, vjust=0.5, face = "italic"),
+        axis.text.y  = element_text(size=14), 
+        axis.title.x = element_text(size = 18), 
+        axis.title.y = element_text(size = 18), 
+        legend.text = element_text(size=14), 
+        plot.margin = unit(c(1,1,1,1), "cm")) +
+  scale_fill_manual(values = c("steelblue4","limegreen"),
+                    breaks = c("Our study (n=94)", 
+                               "Tiacci et al. (n=34)"),
+                    labels = c("Our study (n=94)",
+                               "Tiacci et al. (n=34)"),
+                    name = "") +
+  theme(legend.position="bottom")
+
+```
+
+
+## Arrange all the plots together in one plot
+
+```{r}
+grid.arrange(panelA.pmbcl_V_dlbcl, panelB.dlbcl_V_dlbcl, panelC.hl_V_pmbcl, ncol=1)
+```
