@@ -27,7 +27,8 @@ Expression data is in a matrix format where continuous expression values are lai
 ## Load libraries
 
 ```{r}
-library(xseq) # note that version on bitbucket is most up-to-date: https://bitbucket.org/shahlabbcca/xseq.git
+# we are using the latest version (0.2.2)
+library(xseq) # note that version on bitbucket is most up-to-date: https://bitbucket.org/shahlabbcca/xseq.git (or https://github.com/shahcompbio/xseq)
 library(plyr) # for revalue function
 library(tidyr) # to convert from wide to long
 library(reshape2) # for acast
@@ -48,7 +49,7 @@ variant_type.for_xseq <- c("Splice_Site"="SPLICE",
                            "Frame_Shift_Ins"="FRAMESHIFT",
                            "Missense_Mutation"="MISSENSE",
                            "Nonsense_Mutation"="NONSENSE",
-                           "Nonstop_Mutation"="MISSENSE")
+                           "Nonstop_Mutation"="NONSTOP")
 data.mut$variant_type <- revalue(data.mut$variant_type, variant_type.for_xseq)
 
 # convert values to character class (similar to in vignette)
@@ -253,6 +254,7 @@ plot <- ggplot(xseq.cis_pred.cohort, aes(as.numeric(p_cohort))) +
   ylab("Density") +
   xlim(0.1, 1) +
   ggtitle("Distribution of xseq cis-analysis probabilities (cohort-level)")
+
 # set cutoff based on distribution
 cutoff <- 0.05
 # distribution with cutoff for noise
@@ -266,10 +268,10 @@ plot + geom_vline(xintercept = cutoff, linetype = "dashed", color = "red", size 
 ## Remove the cis-effects of copy number alterations on gene expression
 
 # first, look at an example
-tmp <- NormExpr(cna.logr = cnvkit.log2ratio, 
-                expr = expr.exomes, 
-                gene = "N",
-                show.plot = TRUE)
+#tmp <- NormExpr(cna.logr = cnvkit.log2ratio, 
+#                expr = expr.exomes, 
+#                gene = "TP53",
+#                show.plot = TRUE)
 
 expr.norm = NormExpr(cna.logr = cnvkit.log2ratio, expr = expr.exomes)
 expr.norm.quantile <- QuantileNorm(expr.norm)
@@ -286,7 +288,7 @@ id <- id & !is.na(id)
 data.mut.filt <- data.mut[id, ]
 
 #========================
-## Filter the network
+## Filter the network - this step filters out some genes that are not expressed, expressed at low levels, or have low-score connections; some preliminary D.E. tests are performed to prioritized the connections that are differentially expressed in two conditions (with and without mutations)
 net.filt <- FilterNetwork(net = influence.graph, weight = weight)
 
 init <- SetXseqPrior(expr.dis = expr.dis.norm.quantile,
@@ -315,7 +317,162 @@ model.trans.em <- LearnXseqParameter(model = model.trans,
 # Reformat output
 xseq.trans.pred <- ConvertXseqOutput(model.trans.em$posterior)
 
+```
 
+## Work with trans-analysis output
+
+```{r}
+write.table(xseq.trans.pred, "/Volumes/shung/projects/PMBCL_exomes/XSeq/output/xseq.trans-pred.txt", sep = "\t", quote = FALSE, row.names = FALSE)
+
+# summarize the data at the cohort level
+colnames(xseq.trans.pred) <- c("patient", "gene", "p_patient", "p_cohort")
+xseq.trans.pred.cohort <- unique(xseq.trans.pred[,c("gene", "p_cohort")])
+write.table(xseq.trans.pred.cohort, "/Volumes/shung/projects/PMBCL_exomes/XSeq/output/xseq.trans-pred.cohort_probabilities_only.txt", sep = "\t", quote = FALSE, row.names = FALSE)
+
+# table of mutated patients per gene
+trans.num_mutations <- as.data.frame(table(xseq.trans.pred$gene))
+write.table(trans.num_mutations, "/Volumes/shung/projects/PMBCL_exomes/XSeq/output/xseq.trans-pred.num_mutations.txt", sep = "\t", row.names = FALSE, quote = FALSE)
+
+# show the dysregulation probabilities of genes connected to GOI (with P(D) > 0.8)
+#GOI = "SHCBP1"
+GOI = "JAK1"
+GOI = "EP300"
+#GOI = "DYNC1H1"
+#GOI = "KDR"
+#GOI = "COL13A1"
+#GOI = "COL24A1"
+#GOI = "PTBP1"
+#GOI = "HCFC1"
+#GOI = "LAMB1"
+GOI = "RELB"
+#GOI = "LMTK2"
+#GOI = "TOPBP1"
+#GOI = "MPDZ"
+GOI = "INPP5D"
+
+# heatmap - try to display legend for expression values (red to blue)
+PlotRegulationHeatmap(gene = GOI, 
+                             posterior = model.trans.em$posterior,
+                             main = "in_PMBCL", 
+                             mut = data.mut, subtype = list(NULL),
+                             key=TRUE, 
+                             density.info="none",
+                             dendrogram="row",
+                             cexCol = 1,
+                             cexRow = 1, margins=c(6,6)
+                   
+)
+
+# add this to display just the color key:
+#  lmat=rbind( c(0, 3, 4), c(2,1,0) ), lwid=c(1.5, 10, 2)
+
+#tmp <- PlotRegulationHeatmap(gene = GOI, 
+#                             posterior = model.trans.em$posterior,
+#                             main = "in_PMBCL", 
+#                             mut = data.mut, subtype = list(NULL),
+#                             key=FALSE, 
+#                             dendrogram="row",
+#                             cexCol = 1,
+#                             cexRow = 1)
+
+# do not reorder columns
+tmp <- PlotRegulationHeatmap(gene = GOI, 
+                             posterior = model.trans.em$posterior,
+                             main = "in_PMBCL", 
+                             mut = data.mut, subtype = list(NULL),
+                             key=FALSE, Colv=NULL,
+                             dendrogram="row",
+                             cexCol = 1,
+                             cexRow = 1)
+
+
+# plot multiple genes?
+genes <- c("SHCBP1", "JAK1", "EP300", "DYNC1H1", "KDR", "COL13A1", "COL24A1", "PTBP1", "HCFC1", "LAMB1", "RELB", "LMTK2", "TOPBP1", "MPDZ", "INPP5D")
+
+tmp <- PlotRegulationHeatmap(gene = genes, 
+                             posterior = model.trans.em$posterior,
+                             main = "in_PMBCL", 
+                             mut = data.mut, subtype = list(NULL),
+                             key=FALSE, 
+                             dendrogram="row",
+                             cexCol = 1,
+                             cexRow = 1)
 
 ```
 
+## Retrieve expression data for the gene network of the trans-influencing genes
+
+```{r}
+# genes of interest
+GOI = "JAK1"
+GOI = "EP300"
+GOI = "RELB"
+GOI = "INPP5D"
+
+genes <- c("SHCBP1", "JAK1", "EP300", "DYNC1H1", "KDR", "COL13A1", "COL24A1", "PTBP1", "HCFC1", "LAMB1", "RELB", "LMTK2", "TOPBP1", "MPDZ", "INPP5D")
+
+tmp <- PlotRegulationHeatmap(gene = genes, 
+                             posterior = model.trans.em$posterior,
+                             main = "in_PMBCL", 
+                             mut = data.mut, subtype = list(NULL),
+                             key=FALSE, 
+                             dendrogram="row",
+                             cexCol = 1,
+                             cexRow = 1)
+
+```
+
+# plot oncoplots for trans-impacted genes
+```{r}
+library(maftools)
+# start with JAK1
+
+# extract expression matrix, which will give us the list of genes that are trans-impacted
+jak1.trans_expr <- tmp$prob.g[[1]]
+jak1.trans_genes <- row.names(jak1.trans_expr)
+write.table(jak1.trans_genes, "/Volumes/shung/projects/PMBCL_exomes/XSeq/analysis/trans/RELB-trans_genes.txt", row.names = FALSE, quote = FALSE)
+
+# use this as input into maftools oncoplot (based on mutations that don't have UTR mutations)
+clinData.df <- read.table("/Volumes/shung/projects/PMBCL_exomes/data/clinData.txt", sep = "\t", header = TRUE)
+mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/mutation_summary-paired_and_unpaired.maf", clinicalData = clinData.df)
+
+# colours for annotation tracks
+annot.colors <- list(Gender = c("Female"="palevioletred1", "Male"="royalblue1"),
+               Lymph3Cx = c("PMBL"="mediumseagreen", 
+                            "ABC"="salmon1", 
+                            "GCB"="cyan3", 
+                            "Unclear"="black", 
+                            "No_data"="white"),
+               Status_9p = c("amplification"="firebrick3", "gain"="firebrick1", "neutral"="black"))
+
+oncoplot(maf = mutations.maf, genes = jak1.trans_genes, 
+         clinicalFeatures = c("Gender", "Lymph3Cx", "Status_9p"),
+         annotationColor = annot.colors, 
+         legendFontSize = 12, drawColBar = FALSE)
+
+```
+
+## Plot distribution of probabilities from trans-analysis (possible cutoff we should set?)
+
+```{r}
+library(ggplot2)
+
+# plot the distribution of probabilities at the cohort level
+plot <- ggplot(xseq.trans.pred.cohort, aes(as.numeric(p_cohort))) + 
+  geom_density() + 
+  xlab ("Probability across all patients") + 
+  ylab("Density") +
+  ggtitle("Distribution of xseq trans-analysis probabilities (cohort-level)")
+
+plot <- ggplot(xseq.trans.pred.cohort, aes(as.numeric(p_cohort))) + 
+  geom_histogram(bins = 50) + 
+  xlab ("Probability across all patients") + 
+  ylab("Density") +
+  xlim(0.1, 1) +
+  ggtitle("Distribution of xseq trans-analysis probabilities (cohort-level)")
+# set cutoff based on distribution
+cutoff <- 0.8
+# distribution with cutoff for noise
+plot + geom_vline(xintercept = cutoff, linetype = "dashed", color = "red", size = 0.5)
+
+```
