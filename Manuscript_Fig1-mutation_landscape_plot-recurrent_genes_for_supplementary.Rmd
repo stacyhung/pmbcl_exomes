@@ -7,6 +7,8 @@ output: html_document
 
 This script generates a figure, similar to Fig. 1, but with recurrently mutated genes (n = 73).
 
+Version 2: The most recurrently mutated gene, HRNR, with frequency higher than SOCS, was found to be an outlier and was removed from the list of recurrently mutated genes (thus n=72).
+
 ## Installation of GenVisR (optional)
 ```{r}
 # NB: if you need to install this package, install it using devtools from the github source!!!
