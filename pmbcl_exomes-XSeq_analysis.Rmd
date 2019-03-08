@@ -403,13 +403,11 @@ tmp <- PlotRegulationHeatmap(gene = genes,
 ## Retrieve expression data for the gene network of the trans-influencing genes
 
 ```{r}
-# genes of interest
-GOI = "JAK1"
-GOI = "EP300"
-GOI = "RELB"
-GOI = "INPP5D"
+# write out quantile-normalized expression data for easier retrieval in the future
+write.table(expr.norm.quantile, "/Volumes/shung/projects/PMBCL_exomes/XSeq/expression/expr.norm.quantile.txt", sep = "\t", quote = FALSE)
 
-genes <- c("SHCBP1", "JAK1", "EP300", "DYNC1H1", "KDR", "COL13A1", "COL24A1", "PTBP1", "HCFC1", "LAMB1", "RELB", "LMTK2", "TOPBP1", "MPDZ", "INPP5D")
+# genes of interest
+genes <- c("JAK1", "EP300", "RELB", "INPP5D")
 
 tmp <- PlotRegulationHeatmap(gene = genes, 
                              posterior = model.trans.em$posterior,
@@ -419,6 +417,36 @@ tmp <- PlotRegulationHeatmap(gene = genes,
                              dendrogram="row",
                              cexCol = 1,
                              cexRow = 1)
+
+# print out expression for influence network of JAK1
+jak1.expr <- as.data.frame(tmp$prob.g[[1]])
+#jak1.expr$mean <- rowMeans(jak1.expr[c(1:6)])
+
+# and full network including JAK1:
+jak1.network <- c("JAK1", row.names(jak1.expr))
+jak1.network.expr <- as.data.frame(t(expr.norm.quantile[colnames(jak1.expr), jak1.network]))
+jak1.network.expr$mean <- rowMeans(jak1.network.expr[c(1:6)])
+
+# print out expression for influence network of RELB
+relb.expr <- as.data.frame(tmp$prob.g[[3]])
+#relb.expr$mean <- rowMeans(relb.expr[c(1:5)])
+
+# the full network including RELB:
+relb.network <- c("RELB", row.names(relb.expr))
+relb.network.expr <- as.data.frame(t(expr.norm.quantile[colnames(relb.expr), relb.network]))
+relb.network.expr$mean <- rowMeans(relb.network.expr[c(1:5)])
+
+ep300.expr <- as.data.frame(tmp$prob.g[[2]])
+#ep300.expr$mean <- rowMeans(relb.expr[c(1:8)])
+
+# the full network including EP300:
+ep300.network <- c("EP300", row.names(ep300.expr))
+ep300.network.expr <- as.data.frame(t(expr.norm.quantile[colnames(ep300.expr), ep300.network]))
+ep300.network.expr$mean <- rowMeans(ep300.network.expr[c(1:8)])
+
+write.table(jak1.network.expr, "/Volumes/shung/projects/PMBCL_exomes/XSeq/expression/jak1+network-expr.txt", sep = "\t", quote = FALSE, row.names = TRUE)
+write.table(relb.network.expr, "/Volumes/shung/projects/PMBCL_exomes/XSeq/expression/relb+network-expr.txt", sep = "\t", quote = FALSE, row.names = TRUE)
+write.table(ep300.network.expr, "/Volumes/shung/projects/PMBCL_exomes/XSeq/expression/ep300+network-expr.txt", sep = "\t", quote = FALSE, row.names = TRUE)
 
 ```
 
