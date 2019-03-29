@@ -93,7 +93,12 @@ keeps <- c("sample", "hgnc_symbol", "variant_type")
 mut.snvs_indels <- mut.snvs_indels[keeps]
 gistic.hl <- gistic.hl[keeps]
 
-data.mut <- rbind (gistic.hl, mut.snvs_indels)
+# filter out non-genes
+gistic.filtered <- unique(rbind(
+                gistic.hl[!grepl("orf|^LOC|^MIR|-", gistic.hl$hgnc_symbol), ]))
+gistic.filtered[] <- lapply(gistic.filtered, as.character)
+
+data.mut <- rbind (gistic.filtered, mut.snvs_indels)
 
 ```
 
@@ -193,30 +198,24 @@ load("/Volumes/shung/projects/PMBCL_exomes/XSeq/data/influence_graph/influence_g
 
 ```{r}
 # Compute whether a gene is expressed in the studied tumor type
-#weight <- EstimateExpression(expr) # vignette
 weight <- EstimateExpression(expr.exomes)
 
 # Impute missing values
-#expr <- ImputeKnn(expr)  # vignette
 expr.exomes <- ImputeKnn(expr.exomes)
-#cna.logr <- ImputeKnn(cna.logr)  # vignette
 cnvkit.log2ratio <- ImputeKnn(cnvkit.log2ratio)
 
 # Quantile-Normalization
-#expr.quantile <- QuantileNorm(expr)  # vignette
 expr.exomes.quantile <- QuantileNorm(expr.exomes)
 
 ## Get conditional distributions of genes (based on copy number data)
 
 # First show mutations, expression, and copy number alterations for a single gene - make sure there is enough room on the plot screen to display the plot!
-#tmp <- GetExpressionDistribution(expr = expr.quantile, mut = mut, cna.call = cna.call, gene = "TP53", show.plot = TRUE) # vignette
 tmp <- GetExpressionDistribution(expr = expr.exomes.quantile, 
                                  mut = data.mut, 
                                  cna.call = cnvkit.cn, 
                                  gene = "FRG1", 
                                  show.plot = TRUE)
 
-#expr.dis.quantile <- GetExpressionDistribution(expr = expr.quantile, mut = mut)  # vignette
 expr.dis.quantile <- GetExpressionDistribution(expr = expr.exomes.quantile, 
                                                mut = data.mut)
 
@@ -224,35 +223,32 @@ expr.dis.quantile <- GetExpressionDistribution(expr = expr.exomes.quantile,
 
 ## Filtering not expressed genes, and only analyze loss-of-function mutations
 
-#id <- weight[data.mut[, "hgnc_symbol"]] >= 0.8 & (data.mut[, "variant_type"] %in% c("FRAMESHIFT", "NONSENSE", "SPLICE"))
-id <- weight[data.mut[, "hgnc_symbol"]] >= 0.8 & (data.mut[, "variant_type"] %in% c("MISSENSE", "FRAMESHIFT", "NONSENSE", "SPLICE"))
+id <- weight[data.mut[, "hgnc_symbol"]] >= 0.8 & (data.mut[, "variant_type"] %in% c("MISSENSE", "FRAMESHIFT", "NONSENSE", "HLAMP", "HOMD"))
 id <- id & !is.na(id)
 data.mut.filt <- data.mut[id, ]
 
 #========================
 
-#init <- SetXseqPrior(expr.dis = expr.dis.quantile, mut = mut.filt, mut.type = "loss", cis = TRUE) # vignette
-init <- SetXseqPrior(expr.dis = expr.dis.quantile, mut = data.mut.filt, mut.type = "loss", cis = TRUE)
+init <- SetXseqPrior(expr.dis = expr.dis.quantile, 
+                     mut = data.mut.filt, 
+                     mut.type = "loss", 
+                     cis = TRUE)
 
 # Parameter constraints in EM-iterations
-#constraint <- list(equal.fg = FALSE)
 constraint <- list(equal.fg = FALSE)
 
-#model.cis <- InitXseqModel(mut = mut.filt, expr = expr.quantile, expr.dis = expr.dis.quantile, cpd = init$cpd, cis = TRUE, prior = init$prior) # vignette
 model.cis <- InitXseqModel(mut = data.mut.filt, 
                            expr = expr.exomes.quantile, 
                            expr.dis = expr.dis.quantile,
                            cpd = init$cpd, cis = TRUE, prior = init$prior)
 
-#model.cis.em <- LearnXseqParameter(model = model.cis, constraint = constraint, iter.max = 50, threshold = 1e-6) # vignette
 model.cis.em <- LearnXseqParameter(model = model.cis, 
                                    constraint = constraint, 
                                    iter.max = 50, 
                                    threshold = 1e-6)
 
-#xseq.pred <- ConvertXseqOutput(model.cis.em$posterior)
 xseq.pred <- ConvertXseqOutput(model.cis.em$posterior)
-write.table(xseq.pred, "/Volumes/shung/projects/PMBCL_exomes/XSeq/output/xseq.cis_pred.with_missense.txt", sep = "\t", quote = FALSE)
+write.table(xseq.pred, "/Volumes/shung/projects/PMBCL_exomes/XSeq/output/xseq.cis_pred.with_CNAs.txt", sep = "\t", quote = FALSE)
 
 ```
 
@@ -278,13 +274,7 @@ cutoff <- 0.13
 # distribution with cutoff for noise
 plot + geom_vline(xintercept = cutoff, linetype = "dashed", color = "red", size = 0.5)
 
-# plot the distribution of probabilities at the cohort level
-plot <- ggplot(xseq.cis_pred.cohort, aes(as.numeric(p_cohort))) + 
-  geom_density() + 
-  xlab ("Probability across all patients") + 
-  ylab("Density") +
-  ggtitle("Distribution of xseq cis-analysis probabilities (cohort-level)")
-
+# plot the histogram distribution of probabilities at the cohort level
 plot <- ggplot(xseq.cis_pred.cohort, aes(as.numeric(p_cohort))) + 
   geom_histogram(bins = 50) + 
   xlab ("Probability across all patients") + 
@@ -293,7 +283,7 @@ plot <- ggplot(xseq.cis_pred.cohort, aes(as.numeric(p_cohort))) +
   ggtitle("Distribution of xseq cis-analysis probabilities (cohort-level)")
 
 # set cutoff based on distribution
-cutoff <- 0.05
+cutoff <- 0.8
 # distribution with cutoff for noise
 plot + geom_vline(xintercept = cutoff, linetype = "dashed", color = "red", size = 0.5)
 
