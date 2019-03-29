@@ -34,15 +34,48 @@ library(tidyr) # to convert from wide to long
 library(reshape2) # for acast
 ```
 
-## Load and process mutation data
+## Preprocess GISTIC data (to be used for mutational input)
+
 ```{r}
+library(tidyr)
+
+gistic.segments <- read.table("/Volumes/shung/projects/PMBCL_exomes/gistic/output/drop_low_coverage-filtered_949-arm_peel-threshold_0.3-fdr_0.05-max_seg_1000-FINAL_FINAL_FINAL/gistic_segments.all_thresholded.by_genes.txt", sep = "\t", header = TRUE, fill = TRUE)
+
+# convert from wide to long
+gistic.segs.long <- gather(gistic.segments, sample, CNA, PA001:PA097, factor_key = TRUE)
+
+# extract high-level losses / amplifications
+gistic.filtered <- filter(gistic.segs.long, gistic.segs.long$CNA > 1 | gistic.segs.long$CNA < -1) 
+
+# Map CNAs to xseq variant types
+CNA.to.VarType <- c("2"="HLAMP", "-2"="HOMD")
+gistic.filtered$variant_type <- revalue(as.factor(gistic.filtered$CNA), CNA.to.VarType)
+
+write.table(gistic.filtered, "/Volumes/shung/projects/PMBCL_exomes/XSeq/gistic/gistic.highlevel_segments.txt", sep = "\t", quote = FALSE, row.names = FALSE)
+```
+
+## Load and process mutation data
+
+NB: When initializing the xseq model, mutations be in a data frame with 3 required columns:
+    1. sample
+    2. hgnc_symbol
+    3. variant_type: {HOMD, HLAMP, MISSENSE, NONSENSE, FRAMESHIFT, INFRAME, SPLICE, NONSTOP, STARTGAINED, SYNONYMOUS, OTHER, FUSION, COMPLEX} 
+    
+    HLAMP: High Level Amplification
+    HOMD: Homologous deletion / homozygous loss
+
+```{r}
+# load high level gistic segments and combine with mutational data
+gistic.hl <- read.table("/Volumes/shung/projects/PMBCL_exomes/XSeq/gistic/gistic.highlevel_segments.txt", sep = "\t", header = TRUE, fill = TRUE)
+colnames(gistic.hl) <- c("hgnc_symbol", "locus_id", "cytoband", "sample", "CNA", "variant_type")
+
 # option 1 for mutation data: use all paired + singles data (like summary table, but omitting UTR mutations)
 # option 2 for mutation data: use paired + singles (only including genes that are mutated in pairs)
-data.mut <- read.table("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/mutation_summary-paired_and_unpaired.maf", sep = "\t", header = TRUE, fill = TRUE)
+mut.snvs_indels <- read.table("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/mutation_summary-paired_and_unpaired.maf", sep = "\t", header = TRUE, fill = TRUE)
 # rearrange columns to be in a similar order to that used in the vignette
-data.mut <- data.mut[c("Tumor_Sample_Barcode", "Hugo_Symbol", "Variant_Classification", "Chromosome", "Start_Position", "End_Position", "Reference_Allele", "Tumor_Seq_Allele2", "alt", "Protein_Change", "CDS_Change", "VAF")]
+mut.snvs_indels <- mut.snvs_indels[c("Tumor_Sample_Barcode", "Hugo_Symbol", "Variant_Classification", "Chromosome", "Start_Position", "End_Position", "Reference_Allele", "Tumor_Seq_Allele2", "alt", "Protein_Change", "CDS_Change", "VAF")]
 # rename columns to match the ones that are used in the vignette
-colnames(data.mut) <- c("sample", "hgnc_symbol", "variant_type", "chrom", "start_coord", "end_coord", "reference_allele", "tumor_allele2", "alt", "Protein_Change", "CDS_Change", "VAF")
+colnames(mut.snvs_indels) <- c("sample", "hgnc_symbol", "variant_type", "chrom", "start_coord", "end_coord", "reference_allele", "tumor_allele2", "alt", "Protein_Change", "CDS_Change", "VAF")
 # map variant types to the ones used in the vignette
 variant_type.for_xseq <- c("Splice_Site"="SPLICE",
                            "Frame_Shift_Del"="FRAMESHIFT",
@@ -50,13 +83,17 @@ variant_type.for_xseq <- c("Splice_Site"="SPLICE",
                            "Missense_Mutation"="MISSENSE",
                            "Nonsense_Mutation"="NONSENSE",
                            "Nonstop_Mutation"="NONSTOP")
-data.mut$variant_type <- revalue(data.mut$variant_type, variant_type.for_xseq)
+mut.snvs_indels$variant_type <- revalue(mut.snvs_indels$variant_type, variant_type.for_xseq)
 
 # convert values to character class (similar to in vignette)
-data.mut[] <- lapply(data.mut, as.character)
+mut.snvs_indels[] <- lapply(mut.snvs_indels, as.character)
 
-# only keep patients that have expression data
-#temp <- data.mut[data.mut$sample %in% patients.exomes, ]
+# extract minimum columns
+keeps <- c("sample", "hgnc_symbol", "variant_type")
+mut.snvs_indels <- mut.snvs_indels[keeps]
+gistic.hl <- gistic.hl[keeps]
+
+data.mut <- rbind (gistic.hl, mut.snvs_indels)
 
 ```
 
