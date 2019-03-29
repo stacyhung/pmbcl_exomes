@@ -1,0 +1,95 @@
+---
+title: "SNV Heatmap"
+author: "Stacy Hung"
+date: "February 19, 2018"
+output: html_document
+---
+
+## Mutational signature analysis
+
+```{r}
+library(maftools)
+library(dplyr)
+library(NMF)
+
+mutations.df <- read.table("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/singles_and_pairs/singles_and_pairs.snvs_and_indels.somatic_modified_effects.removed_non_genes.singles_AF_filtered.maf", sep = "\t", header = TRUE, fill = TRUE)
+
+# filter for paired mutations
+paired.samples <- c("PA001", "PA002", "PA003", "PA009", "PA010", "PA011", "PA012", "PA013", "PA014", "PA015", "PA016", "PA017", "PA018", "PA021", "PA034", "PA045", "PA056", "PA069", "PA070", "PA072", "PA073")
+mutations.df.pairs <- filter(mutations.df, mutations.df$Tumor_Sample_Barcode %in% paired.samples)
+
+# filter for unpaired mutations
+mutations.df.unpaired <- filter(mutations.df, !(mutations.df$Tumor_Sample_Barcode %in% paired.samples))
+
+# write out mutation subsets to MAF file
+write.table(mutations.df.pairs, "/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/pairs.snvs_indels.somatic.effect_filtered.maf", sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(mutations.df.unpaired, "/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/unpaired.snvs_indels.somatic.effect_filtered.maf", sep = "\t", quote = FALSE, row.names = FALSE)
+
+# read in MAF file
+mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/singles_and_pairs/singles_and_pairs.snvs_and_indels.somatic_modified_effects.removed_non_genes.singles_AF_filtered.maf")
+
+#Extracting 5' and 3' adjacent bases..
+#Extracting +/- 20bp around mutated bases for background C>T estimation..
+#Estimating APOBEC enrichment scores.. 
+#Performing one-way Fisher's test for APOBEC enrichment..
+#APOBEC related mutations are enriched in 3.191% of samples (APOBEC enrichment score > 2 ; 3 of 94 samples)
+#Creating mutation matrix..
+#matrix of dimension 94x96
+
+# paired mutations only
+mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/pairs.snvs_indels.somatic.effect_filtered.maf")
+
+#Extracting 5' and 3' adjacent bases..
+#Extracting +/- 20bp around mutated bases for background C>T estimation..
+#Estimating APOBEC enrichment scores.. 
+#Performing one-way Fisher's test for APOBEC enrichment..
+#APOBEC related mutations are enriched in 5% of samples (APOBEC enrichment score > 2 ; 1 of 20 samples)
+#Creating mutation matrix..
+#matrix of dimension 20x96
+
+# unpaired mutations only
+mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/unpaired.snvs_indels.somatic.effect_filtered.maf")
+
+# first, extract adjacent bases to the mutated locus and classify them into 96 subsitution classes
+laml.tnm = trinucleotideMatrix(maf = mutations.maf, ref_genome = "~/Documents/references/GRCh37-lite.fa",
+                               ignoreChr = "chr23", useSyn = FALSE)
+
+#Extracting 5' and 3' adjacent bases..
+#Extracting +/- 20bp around mutated bases for background C>T estimation..
+#Estimating APOBEC enrichment scores.. 
+#Performing one-way Fisher's test for APOBEC enrichment..
+#APOBEC related mutations are enriched in 2.703% of samples (APOBEC enrichment score > 2 ; 2 of 74 samples)
+#Creating mutation matrix..
+#matrix of dimension 74x96
+
+# extractSignatures uses a non-negative matrix factorization to decompose 92 samples x 96 matrix into r signatures.
+# By default, the function runs NMF on 6 ranks and chooses the best possible value based on maximum cophenetic-correlation coefficients (can also specify r).  Once decomposed, signatures are compared against known signatures derived from Alexandrov et al., and cosine similarity is calculated to identify the best match.
+
+#laml.sign = extractSignatures(mat = laml.tnm, nTry = 3, plotBestFitRes = FALSE)
+laml.sign = extractSignatures(mat = laml.tnm, plotBestFitRes = FALSE)
+
+# Using 3 as a best-fit rank based on decreasing cophenetic correlation coefficient.
+# Comparing against experimentally validated 30 signatures (See http://cancer.sanger.ac.uk/cosmic/signatures)
+# Found Signature_1 most similar to validated Signature_19. Aetiology: Unknown [cosine-similarity: 0.566] 
+# Found Signature_2 most similar to validated Signature_3. Aetiology: defects in DNA-DSB repair by HR [cosine-similarity: 0.665] 
+#Found Signature_3 most similar to validated Signature_3. Aetiology: defects in DNA-DSB repair by HR [cosine-similarity: 0.556] 
+
+plotSignatures(laml.sign)
+plotSignatures(laml.sign, contributions = TRUE)
+
+# look at comparison of similarities of detected signatures against validated signatures
+library(corrplot)
+corrplot::corrplot(corr = laml.sign$coSineSimMat, 
+                   col = RColorBrewer::brewer.pal(n = 9, name = 'Blues'),
+                   is.corr = FALSE, 
+                   tl.cex = 0.6, 
+                   tl.col = 'black', 
+                   cl.cex = 0.6)
+
+# alternatively represent in heatmap form:
+library(pheatmap)
+
+pheatmap::pheatmap(mat = laml.sign$coSineSimMat, cluster_rows = FALSE, main = "cosine similarity against validated signatures")
+
+
+```
