@@ -13,23 +13,33 @@ This script is used to generate Figure 2 showing statistically significant mutua
 ```{r}
 library(maftools)
 library(gridExtra)
+library(dplyr)
 
-# standard list of significantly mutated genes, along with clinical data annotations
-clinData.df <- read.table("/Volumes/shung/projects/PMBCL_exomes/data/clinData.txt", sep = "\t", header = TRUE)
-mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/maftools/paired_and_unpaired.snvs_and_indels.sig_genes_v3.hugo_gene.AF_filtered.gene_filtered.with_VAF.unique.maf", clinicalData = clinData.df)
-mutations.df <- read.table("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/maftools/paired_and_unpaired.snvs_and_indels.sig_genes_v3.hugo_gene.AF_filtered.gene_filtered.with_VAF.unique.maf", sep = "\t", header = TRUE, fill = TRUE)
+# add gistic peaks (in MutSig genes to mutation input)
+gistic.mut <- read.table("/Volumes/shung/projects/PMBCL_exomes/gistic/data/gistic_peaks.to_add_to_mutations.maf", sep = "\t", header = TRUE, fill = TRUE)
+mutations.df <- read.table("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/singles_and_pairs/singles_and_pairs.snvs_and_indels.somatic_modified_effects.removed_non_genes.singles_AF_filtered.maf", sep = "\t", header = TRUE, fill = TRUE)
+mutsig.data <- read.table("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig-gene_frequencies.20180516.txt", sep = "\t", header = TRUE, fill = TRUE)
+# filter mutations for mutsig genes
+mutations.df <- filter(mutations.df, mutations.df$Hugo_Symbol %in% mutsig.data$Var1)
+
+# extract same set of columns
+keeps <- c("Hugo_Symbol", "Tumor_Sample_Barcode", "Variant_Classification", "Chromosome", 
+           "Start_Position", "End_Position", "Reference_Allele", "Tumor_Seq_Allele2", "Variant_Type")
+gistic.mut <- gistic.mut[keeps]
+mutations.df <- mutations.df[keeps]
+mut.combined <- rbind(gistic.mut, mutations.df)
+write.table(mut.combined, "/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/maftools/all_mutations_plus_gistic.mutsig_genes.for_somaticInteractions.maf", sep = "\t", row.names = FALSE, quote = FALSE)
+
+mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/maftools/all_mutations_plus_gistic.mutsig_genes.for_somaticInteractions.maf")
 
 sig.genes <- unique(unique(rbind(mutations.df[!grepl("orf|-", mutations.df$Hugo_Symbol), ]))$Hugo_Symbol)
 sig.genes <- factor(sig.genes)
 
-# ALL mutations *including* UTR mutations (and all genes)
-#mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/mutation_summary-paired_and_unpaired_with_UTRs.maf", clinicalData = clinData.df, vc_nonSyn = c("Frame_Shift_Del", "Frame_Shift_Ins", "Splice_Site", "Translation_Start_Site","Nonsense_Mutation", "Nonstop_Mutation", "In_Frame_Del","In_Frame_Ins", "Missense_Mutation", "3'UTR", "5'UTR"))
-
 # genes that have significant interactions
 sig.genes <- c("STAT6", "CISH", "GNA13", "IL4R", "SOCS1", "CXCR5", "ACTB", "IRF2BP2")
 
-# plot somatic interactions
-somaticInteractions(maf = mutations.maf, genes=sig.genes, top = 50, pvalue = c(0.05, 0.01))
+# plot somatic interactions (for Fig 2)
+somaticInteractions(maf = mutations.maf, top = 100, pvalue = c(0.1, 0.05))
 
 # oncoplots for EACH mutually exclusive / co-occurring interaction (most significant):
 
