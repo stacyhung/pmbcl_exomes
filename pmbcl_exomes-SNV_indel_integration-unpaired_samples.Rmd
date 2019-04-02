@@ -19,200 +19,144 @@ Additional filters that should be applied to VarScan calls:
 1. SS = 2 (somatic based on Fisher's exact test) and GMAF (if available) < 0.01
 2. dbSNP as a filter?? (yes, for unpaired tumor samples analyzed using a VarScan singles pipeline)
 
-## ###############################################################################################
-## Load and process datasets for singles T-N analysis (VarScan, Virtual Normal-filtered variants)
-## ###############################################################################################
+## ##############################################
+## Load and process datasets for unpaired samples
+## ##############################################
 
+# VarScan
 
 ```{r}
 library(dplyr)    # filter
 library(tidyr)    # separate
 
-# VarScan: Note that the VarScan datasets have already been filtered for effect 
-varscan.singles.snvs <- read.table("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/singles/varscan/all.merged.single_samples.varScan.snps.filtered.no_dbSNP.txt", sep = "\t", header = TRUE, fill = TRUE)
-varscan.singles.indels <- read.table("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/singles/varscan/all.merged.single_samples.varScan.indels.filtered.no_dbSNP.txt", sep = "\t", header = TRUE, fill = TRUE)
-
-# VarScan after VN filtering
-# threshold = 1 (variant appears in at least 1 normal)
-#varscan.vn_filtered.snvs <- read.table("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/singles/varscan/vn_analysis/threshold_1_VN/all.filtered_variants_for_VN_correction.combined.txt", sep = "\t", header = TRUE)
-# threshold = 3 (variant appears in at least 3 normals; "high confidence")
-varscan.vn_filtered.snvs <- read.table("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/singles/varscan/vn_analysis/threshold_3_VN/all.filtered_variants_for_high_confidence_VN_correction.txt", sep = "\t", header = TRUE)
+varscan.snvs <- read.table("~/Documents/projects/PMBCL_exomes_temp/unpaired_vs_pooledN/varScan/all.paired_samples.varScan.snps.snpEff.snps_annotated.cosmic_annotated.filtered.no_TRID_no_BIOTPYE.unique.txt", sep = "\t", header = TRUE, fill = TRUE)
+varscan.indels <- read.table("~/Documents/projects/PMBCL_exomes_temp/unpaired_vs_pooledN/varScan/all.paired_samples.varScan.indels.snpEff_canonical.indels_annotated.filtered.no_TRID_no_BIOTPYE.unique.txt", sep = "\t", header = TRUE, fill = TRUE)
 
 # combine snvs and indels - add mutation type as separate "type" column
-varscan.singles.indels$type = "indel"
-varscan.singles.snvs$type = "snv"
-varscan.singles.calls <- rbind(varscan.singles.indels, varscan.singles.snvs)
+varscan.indels$type = "indel"
+varscan.snvs$type = "snv"
+varscan.unpaired <- rbind(varscan.indels, varscan.snvs)
 
-rm(varscan.singles.indels)
-rm(varscan.singles.snvs)
+rm(varscan.indels)
+rm(varscan.snvs)
 
 # rename the columns
-colnames(varscan.singles.calls) <- c("sample", "chr", "pos", "external_id", "ref", "alt", "qual", 
-                                     "filter", "cda", "KG_validated", "om", "pm", "gmaf",
-                                     "gt", "gq", "sdp", "depth", "ref_depth", "alt_depth",
-                                     "allele_freq", "p_value", "rbq", "abq", "rdf", "rdr", "adf", "adr",
-                                     "effect", "impact", "fun_class", "HGVS_DNA", "HGVS_protein",
-                                     "gene", "biotype", "coding", "transcript_id", "exon_rank", "type")
-
-keeps <- c("sample", "chr", "pos", "external_id", "ref", "alt", "gt", "depth",
-           "ref_depth", "alt_depth", "allele_freq", "p_value", "rdf", "rdr", "adf", "adr",
-           "effect", "impact", "fun_class", "HGVS_DNA", "HGVS_protein",
-           "gene", "biotype", "coding", "transcript_id", "type")
-
-varscan.singles.calls <- varscan.singles.calls[keeps]
-
-# two ways to filter out mutations with a dbSNP id
-#varscan.singles.calls <- varscan.singles.calls[! grepl("rs", varscan.singles.calls$external_id), ]
-#varscan.singles.calls <- varscan.singles.calls[! grepl("rs", varscan.singles.calls$external_id), ]
-
-# remove percentage from allele frequency
-varscan.singles.calls$allele_freq <- gsub("(.*)\\%(.*)","\\1", varscan.singles.calls$allele_freq)
-
-# filter for effect
-varscan.singles.calls <- unique(rbind(
-              varscan.singles.calls[grep("SPLICE_SITE_REGION", varscan.singles.calls$effect), ],
-              varscan.singles.calls[grep("SPLICE_SITE_ACCEPTOR", varscan.singles.calls$effect), ],
-              varscan.singles.calls[grep("SPLICE_SITE_DONOR", varscan.singles.calls$effect), ],
-              varscan.singles.calls[grep("CODON_DELETION", varscan.singles.calls$effect), ],
-              varscan.singles.calls[grep("CODON_INSERTION", varscan.singles.calls$effect), ],
-              varscan.singles.calls[grep("NON_SYNONYMOUS_CODING", varscan.singles.calls$effect), ],
-              varscan.singles.calls[grep("NON_SYNONYMOUS_START", varscan.singles.calls$effect), ],
-              varscan.singles.calls[grep("START_GAINED", varscan.singles.calls$effect), ],
-              varscan.singles.calls[grep("START_LOST", varscan.singles.calls$effect), ],
-              varscan.singles.calls[grep("STOP_GAINED", varscan.singles.calls$effect), ],
-              varscan.singles.calls[grep("STOP_LOST", varscan.singles.calls$effect), ],
-              varscan.singles.calls[grep("UTR_3_PRIME", varscan.singles.calls$effect), ],
-              varscan.singles.calls[grep("UTR_5_PRIME", varscan.singles.calls$effect), ]
-              ))
-
-varscan.singles.calls$combine = as.character(paste(
-              varscan.singles.calls$chr, 
-              varscan.singles.calls$pos, 
-              varscan.singles.calls$ref,
-              varscan.singles.calls$alt,
-              sep = "."
-              ))
-
-varscan.vn_filtered.snvs$combine = as.character(paste(
-              varscan.vn_filtered.snvs$chromosome, 
-              varscan.vn_filtered.snvs$end, 
-              varscan.vn_filtered.snvs$reference,
-              varscan.vn_filtered.snvs$alleleSeq,
-              sep = "."
-              ))
-
-combine.varscan.vn.intersect <- intersect(
-              unique(varscan.singles.calls$combine), unique(varscan.vn_filtered.snvs$combine)
-              )
-
-varscan.singles.vn_overlap <- subset(varscan.singles.calls, 
-                                     (varscan.singles.calls$combine %in% combine.varscan.vn.intersect))
-
-write.table(varscan.singles.vn_overlap, "/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/singles/varscan.singles.vn_overlap_high_confidence.txt", sep = "\t", quote = FALSE, row.names = FALSE)
-
-#write.table(varscan.singles.vn_overlap, "~/Documents/projects/PMBCL_exomes/temp_snv_indel_analysis_space/singles/varscan.singles.vn_overlap.txt", sep = "\t", quote = FALSE, row.names = FALSE)
-
-```
-
-## ###############################################################################################
-## Load and process datasets for paired T-N analysis (VarScan paired, MuTect, Strelka)
-## ###############################################################################################
-
-```{r}
-library(dplyr)    # filter
-library(tidyr)    # separate
-
-#**************
-#*  VARSCAN   *
-#**************
-varscan.paired.snvs <- read.table("/Volumes/LCR/steidl_lab/projects/PMBCL/PMBCL_exomes/varScan/all.merged.paired_samples.varScan.snps.filtered_effect.txt2", sep = "\t", header = TRUE, fill = TRUE)
-varscan.paired.indels <- read.table("/Volumes/LCR/steidl_lab/projects/PMBCL/PMBCL_exomes/varScan/all.merged.paired_samples.varScan.indels.filtered_effect.txt2", sep = "\t", header = TRUE, fill = TRUE)
-
-# combine snvs and indel - add mutation type as separate "type" column
-varscan.paired.snvs$type = "snv"
-varscan.paired.indels$type = "indel"
-varscan.paired.calls <- rbind(varscan.paired.indels, varscan.paired.snvs)
-
-rm(varscan.paired.indels)
-rm(varscan.paired.snvs)
-
 # rename columns
-colnames(varscan.paired.calls) <- c("sample", "chr", "pos", "external_id", "ref", "alt", "qual", "filter",
+colnames(varscan.unpaired) <- c("sample", "chr", "pos", "external_id", "ref", "alt", "qual", "filter",
                             "depth", "somatic_status", "ssc", "gpv", "somatic_p_value", "cda",
                             "KG_validated", "om", "pm", "gmaf", "gt_normal", "gt_tumor", "gq_normal", "gq_tumor",
                             "depth_normal", "depth_tumor", "ref_reads_normal", "ref_reads_tumor",
                             "var_reads_normal", "var_reads_tumor", "allele_freq_normal", "allele_freq_tumor",
                             "depth4_normal", "depth4_tumor", "effect", "impact", "fun_class", "HGVS_DNA",
-                            "HGVS_protein", "gene", "biotype", "coding", "transcript_id", "exon_rank", "type")
+                            "HGVS_protein", "gene", "coding", "type")
 
 # create a tumor_id column based on the sample id (format is <tumor_id>_<normal_id>) - e.g. GE0556B_GE0556-N
-varscan.paired.calls$tumor_id <- gsub("(.*)\\_(.*)","\\1", varscan.paired.calls$sample)
-# after merging with strelka calls, we will need to remove the scroll identifier (e.g. A, B, etc.)
+varscan.unpaired$tumor_id <- gsub("(.*)\\_(.*)","\\1", varscan.unpaired$sample)
 
-# remove "%" from the allele frequency
-varscan.paired.calls$allele_freq_normal <- gsub("(.*)\\%(.*)","\\1", varscan.paired.calls$allele_freq_normal)
-varscan.paired.calls$allele_freq_tumor <- gsub("(.*)\\%(.*)","\\1", varscan.paired.calls$allele_freq_tumor)
+# filter for somatic status
+varscan.unpaired <- filter(varscan.unpaired, somatic_status == 2 & filter == 'PASS' & (gmaf < 0.001 | is.na(gmaf)))
 
-# filter for somatic calls (SS = 2 and GMAF [if available] is not greater than 0.01)
-varscan.paired.calls <- filter(varscan.paired.calls, somatic_status == 2 & filter == 'PASS' & (gmaf < 0.001 | is.na(gmaf)))
+# two ways to filter out mutations with a dbSNP id
+varscan.unpaired <- varscan.unpaired[! grepl("rs", varscan.unpaired$external_id), ]
 
-# remove unneeded columns and rearrange as necessary
-# last few columns are for initial filtering and reference and can be removed later
-keeps <- c("tumor_id", "type", "chr", "pos", "gene", "ref", "alt", "HGVS_DNA", "HGVS_protein",
+# remove percentage from allele frequency
+varscan.unpaired$allele_freq_tumor <- gsub("(.*)\\%(.*)","\\1", varscan.unpaired$allele_freq_tumor)
+varscan.unpaired$allele_freq_normal <- gsub("(.*)\\%(.*)","\\1", varscan.unpaired$allele_freq_normal)
+
+# define thresholds
+MAX_GMAF = 0.01           # default
+MIN_VAR_READS_TUMOR = 3   # default
+MIN_VAR_AF_TUMOR = 5      # default; as a percentage
+MAX_SOMATIC_PVAL = 0.05
+
+varscan.unpaired <- filter(varscan.unpaired, as.numeric(gmaf) < MAX_GMAF | is.na(gmaf))
+varscan.unpaired <- filter(varscan.unpaired, as.numeric(var_reads_tumor) >= MIN_VAR_READS_TUMOR)
+varscan.unpaired <- filter(varscan.unpaired, as.numeric(allele_freq_tumor) >= MIN_VAR_AF_TUMOR)
+varscan.unpaired <- filter(varscan.unpaired, as.numeric(somatic_p_value) < MAX_SOMATIC_PVAL)
+
+keeps <- c("sample", "type", "chr", "pos", "gene", "ref", "alt", "HGVS_DNA", "HGVS_protein",
            "allele_freq_normal", "allele_freq_tumor", "depth4_normal", "depth4_tumor", 
-           "var_reads_normal", "var_reads_tumor", "effect", "impact", "fun_class", "transcript_id", "external_id", 
+           "var_reads_normal", "var_reads_tumor", "effect", "impact", "fun_class", "external_id", 
            "somatic_p_value", "somatic_status", "gt_normal", "gt_tumor")
-varscan.paired.calls <- varscan.paired.calls[keeps]
 
-# filter HGVS calls for obvious effects
-varscan.paired.calls <- unique(rbind(
-                varscan.paired.calls[grep("FRAME_SHIFT", varscan.paired.calls$effect), ],
-                varscan.paired.calls[grep("SPLICE_SITE_ACCEPTOR", varscan.paired.calls$effect), ],
-                varscan.paired.calls[grep("SPLICE_SITE_DONOR", varscan.paired.calls$effect), ],
-                varscan.paired.calls[grep("CODON_CHANGE_PLUS_CODON_DELETION", varscan.paired.calls$effect), ],
-                varscan.paired.calls[grep("CODON_DELETION", varscan.paired.calls$effect), ],
-                varscan.paired.calls[grep("CODON_INSERTION", varscan.paired.calls$effect), ],
-                varscan.paired.calls[grep("NON_SYNONYMOUS_CODING", varscan.paired.calls$effect), ],
-                varscan.paired.calls[grep("NON_SYNONYMOUS_START", varscan.paired.calls$effect), ],
-                varscan.paired.calls[grep("START_GAINED", varscan.paired.calls$effect), ],
-                varscan.paired.calls[grep("START_LOST", varscan.paired.calls$effect), ],
-                varscan.paired.calls[grep("STOP_GAINED", varscan.paired.calls$effect), ],
-                varscan.paired.calls[grep("STOP_LOST", varscan.paired.calls$effect), ],
-                varscan.paired.calls[grep("UTR_3_PRIME", varscan.paired.calls$effect), ],
-                varscan.paired.calls[grep("UTR_5_PRIME", varscan.paired.calls$effect), ]
-                ))
+varscan.unpaired <- unique(varscan.unpaired[keeps])
 
-# other effects to include:
-# SPLICE_SITE_REGION ? [IMPACT: LOW] - desc: A sequence variant in which a change has occurred within the region of the splice site, either within 1-3 bases of the exon or 3-8 bases of the intron.
-# EXON ? [IMPACT: MODIFIER] - desc: The variant hits an exon (from a non-coding transcript) or a retained intron.
-# SYNONYMOUS_STOP? [IMPACT: LOW] - desc: Variant causes stop codon to be mutated into another stop codon. e.g.: taA/taG, */*
+# filter for effect
+varscan.unpaired <- unique(rbind(
+              varscan.unpaired[grep("SPLICE_SITE_REGION", varscan.unpaired$effect), ],
+              varscan.unpaired[grep("SPLICE_SITE_ACCEPTOR", varscan.unpaired$effect), ],
+              varscan.unpaired[grep("SPLICE_SITE_DONOR", varscan.unpaired$effect), ],
+              varscan.unpaired[grep("CODON_DELETION", varscan.unpaired$effect), ],
+              varscan.unpaired[grep("CODON_INSERTION", varscan.unpaired$effect), ],
+              varscan.unpaired[grep("NON_SYNONYMOUS_CODING", varscan.unpaired$effect), ],
+              varscan.unpaired[grep("NON_SYNONYMOUS_START", varscan.unpaired$effect), ],
+              varscan.unpaired[grep("START_GAINED", varscan.unpaired$effect), ],
+              varscan.unpaired[grep("START_LOST", varscan.unpaired$effect), ],
+              varscan.unpaired[grep("STOP_GAINED", varscan.unpaired$effect), ],
+              varscan.unpaired[grep("STOP_LOST", varscan.unpaired$effect), ],
+              varscan.unpaired[grep("UTR_3_PRIME", varscan.unpaired$effect), ],
+              varscan.unpaired[grep("UTR_5_PRIME", varscan.unpaired$effect), ]
+              ))
 
-varscan.paired.calls$combine = as.character(paste(
-  varscan.paired.calls$tumor_id, 
-  varscan.paired.calls$chr, 
-  varscan.paired.calls$pos, 
-  varscan.paired.calls$ref,
-  varscan.paired.calls$alt,
-  sep = "."
-  ))
+varscan.unpaired$effect <- factor(varscan.unpaired$effect)
 
-# sort the calls by case, chr, then position
-varscan.paired.calls <- arrange(varscan.paired.calls, tumor_id, chr, pos)
+## !! We are commenting out this section of the code since the VN-filtered dataset is based on results from a VarScan unpaired analysis (output from VN tool outputs high-confidence variants, vs. variants that should be filtered out)
 
-# print out the results (these will be VarScan not intersected with any other methods)
-write.table(varscan.paired.calls, "varsScan.all.paired-snps_and_indels.txt", sep = "\t", quote = FALSE, row.names = FALSE)
+# VarScan after VN filtering
+# threshold = 3 (variant appears in at least 3 normals; "high confidence")
+#varscan.vn_filtered.snvs <- read.table("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/singles/varscan/vn_analysis/threshold_3_VN/all.filtered_variants_for_high_confidence_VN_correction.txt", sep = "\t", header = TRUE)
 
+#varscan.unpaired$combine = as.character(paste(
+#              varscan.unpaired$chr, 
+#              varscan.unpaired$pos, 
+#              varscan.unpaired$ref,
+#              varscan.unpaired$alt,
+#              sep = "."
+#              ))
+#
+#varscan.vn_filtered.snvs$combine = as.character(paste(
+#              varscan.vn_filtered.snvs$chromosome, 
+#              varscan.vn_filtered.snvs$end, 
+#              varscan.vn_filtered.snvs$reference,
+#              varscan.vn_filtered.snvs$alleleSeq,
+#              sep = "."
+#              ))
+#
+#combine.varscan.vn.intersect <- intersect(
+#              unique(varscan.unpaired$combine), unique(varscan.vn_filtered.snvs$combine)
+#              )
+#
+#varscan.singles.vn_overlap <- subset(varscan.unpaired, 
+#                                     (varscan.unpaired$combine %in% combine.varscan.vn.intersect))
+#
+#write.table(varscan.singles.vn_overlap, "~/Documents/projects/PMBCL_exomes_temp/unpaired_vs_pooledN/varScan/varscan.singles.vn_overlap_high_confidence.txt", sep = "\t", quote = FALSE, row.names = FALSE)
 
-#**************
-#*   MUTECT   *
-#**************
-mutect.snvs <- read.table("/Volumes/LCR/steidl_lab/projects/PMBCL/PMBCL_exomes/mutect/all.snps.pass.txt", sep = "\t", header = TRUE)
+#write.table(varscan.singles.vn_overlap, "~/Documents/projects/PMBCL_exomes/temp_snv_indel_analysis_space/singles/varscan.singles.vn_overlap.txt", sep = "\t", quote = FALSE, row.names = FALSE)
+
+```
+
+## MuTect
+
+```{r}
+mutect.snvs <- read.table("/Volumes/shung/projects/PMBCL_exomes/unpaired_vs_pooledN/mutect/mutect.all.snps.pass.txt", sep = "\t", header = TRUE, fill = TRUE)
 
 # create a tumor_id column based on the sample id (format is same as varscan, but without scroll letter)
-mutect.snvs$tumor_id <- gsub("(.*)\\_(.*)","\\1", mutect.snvs$tumor_normal)
+#mutect.snvs$tumor_id <- gsub("(.*)\\_(.*)","\\1", mutect.snvs$tumor_normal)
+
+miseqid.to.patient_id <- c("CACGHANXX_4_ATGCCTAA" = "PA001",
+                           "CACGHANXX_4_GAATCTGA" = "PA002",
+                           "CACGHANXX_5_AACGTGAT" = "PA003",
+                           "CACGHANXX_4_CACTTCGA" = "PA004",
+                           "CACGHANXX_5_GAGTTAGC" = "PA005",
+                           "CACGHANXX_5_GCCAAGAC" = "PA006",
+                           "CACGHANXX_5_CGAACTTA" = "PA007",
+                           "CACGHANXX_6_GATAGACA" = "PA009",
+                           "CACGHANXX_6_ATTGGCTC" = "PA010",
+                           "CACGHANXX_6_GATGAATC" = "PA011")
+mutect.snvs$tumor_id <- revalue(mutect.snvs$tumor_name, miseqid.to.patient_id)
 
 mutect.snvs$combine = as.character(paste(
-  mutect.snvs$tumor_id,
+  mutect.snvs$tumor_name,
   mutect.snvs$contig,
   mutect.snvs$position,
   mutect.snvs$ref_allele,
@@ -225,8 +169,8 @@ mutect.snvs$type = "snv"
 #**************
 #*  STRELKA   *
 #**************
-strelka.snvs <- read.table("/Volumes/LCR/steidl_lab/projects/PMBCL/PMBCL_exomes/strelka/all.passed.somatic.snvs.vcf", sep = "\t", header = FALSE)
-strelka.indels <- read.table("/Volumes/LCR/steidl_lab/projects/PMBCL/PMBCL_exomes/strelka/all.passed.somatic.indels.vcf", sep = "\t", header = FALSE)
+strelka.snvs <- read.table("/Volumes/shung/projects/PMBCL_exomes/unpaired_vs_pooledN/strelka/passed.snvs.txt", sep = "\t", header = FALSE)
+strelka.indels <- read.table("/Volumes/shung/projects/PMBCL_exomes/unpaired_vs_pooledN/strelka/passed.indels.txt", sep = "\t", header = FALSE)
 
 # combine snvs and indels - add mutation type as separate "type" column
 strelka.indels$type = "indel"
