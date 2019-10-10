@@ -103,14 +103,14 @@ neg.nonnorm <- as.data.frame(as.table(log2(maqc$E[maqc$genes$Status == "NEGATIVE
 colnames(neg.nonnorm) <- c("probe", "patient", "log2_intensity")
 
 p1 <- ggplot(regular.nonnorm, aes(x=patient, y=log2_intensity)) + 
-  geom_boxplot(outlier.size=NA) +
+  geom_boxplot(outlier.size=0) +
   theme(axis.ticks.x = element_blank(),
         axis.title.x = element_blank(),
         axis.text.x = element_blank()) +
   ylab("log2 (intensity)") + xlab("")
   
 p2 <- ggplot(neg.nonnorm, aes(x=patient, y=log2_intensity)) + 
-  geom_boxplot(outlier.size=NA) +
+  geom_boxplot(outlier.size=0) +
   theme(axis.text.x = element_blank(),
         axis.ticks.x = element_blank()) +
   ylab("log2 (intensity)") + xlab("patient")
@@ -240,23 +240,23 @@ library(data.table)
 library(reshape2)
 
 # read in list of signficantly mutated genes based on MutSig
-#sig.genes <- read.table("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_output/pairs/ensembl_ids_with_coverage_data_v3/sig.genes.no_orfs.txt")
-#sig.genes <- as.vector(sig.genes$V1)
+sig.genes <- read.table("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_output/pairs/ensembl_ids_with_coverage_data_v3/sig.genes.no_orfs.txt")
+sig.genes <- as.vector(sig.genes$V1)
 
 # or get list of genes that are mutated in the paired analysis
-pairs.genes <- read.table("/Volumes/shung/projects/PMBCL_exomes/XSeq/data/pairs.mutated_genes.txt", header = FALSE)
-pairs.genes <- as.vector(pairs.genes$V1)
+#pairs.genes <- read.table("/Volumes/shung/projects/PMBCL_exomes/XSeq/data/pairs.mutated_genes.txt", header = FALSE)
+#pairs.genes <- as.vector(pairs.genes$V1)
 
 # define row names to be the gene symbols (obtained from illumina annotation package)
 rownames(maqc.norm.filt) <- symbols
 # extract expression data for just the driver genes
-#expr.sig.genes <- maqc.norm.filt[(row.names(maqc.norm.filt) %in% sig.genes), ]
-#expr.sig.genes.df <- as.data.frame(t(expr.sig.genes$E)) # convert expression to data frame
+expr.sig.genes <- maqc.norm.filt[(row.names(maqc.norm.filt) %in% sig.genes), ]
+expr.sig.genes.df <- as.data.frame(t(expr.sig.genes$E)) # convert expression to data frame
 # remove genes from the list that don't have a mapping in the expression data
-#remove <- c ("NFKBIE", "CIITA", "HIST1H4J", "FPGT", "IFNL3", "TSPAN19")
-#sig.genes.expr <-  sig.genes [! sig.genes %in% remove]
+remove <- c ("NFKBIE", "CIITA", "HIST1H4J", "FPGT", "IFNL3", "TSPAN19")
+sig.genes.expr <-  sig.genes [! sig.genes %in% remove]
 # convert from wide to long
-#expr.wide <- melt(expr.sig.genes.df, measure.vars = sig.genes.expr, variable.name = "gene", value.name = "expr")
+expr.wide <- melt(expr.sig.genes.df, measure.vars = sig.genes.expr, variable.name = "gene", value.name = "expr")
 
 # extract expression data for mutated genes
 #expr.pair.genes <- maqc.norm.filt[(row.names(maqc.norm.filt) %in% pairs.genes), ]
@@ -282,11 +282,38 @@ expr.avg.wide <- dcast(expr.avg, patient ~ gene, value.var = "expr")
 write.table(expr.avg.wide, "/Volumes/shung/projects/PMBCL_exomes/XSeq/expression/expr.patient_by_gene.txt", sep = "\t", quote = FALSE, row.names = TRUE, col.names = TRUE)
 
 # boxplots of expression for the driver genes
-ggplot(expr.wide) + 
-  geom_boxplot(aes(x = reorder(expr.wide$gene, expr, median), y = expr)) +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
-  xlab("") + ylab("log2 normalized expression")
+#ggplot(expr.avg.wide) + 
+#  geom_boxplot(aes(x = reorder(expr.avg.wide$gene, expr, median), y = expr)) +
+#  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+#  xlab("") + ylab("log2 normalized expression")
 
+#myColors <- c(rep("white", 20*113), rep("red", 113), rep("white", 23*113))
+
+p <- ggplot(expr.wide, aes(x = reorder(expr.wide$gene, expr, median), y = expr)) + 
+  geom_boxplot() +
+  xlab("") + ylab("log2 normalized expression") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5, face = "italic"))
+#   scale_fill_manual(values=myColors) +
+```
+
+IRF4 query: is expression homogeneous across the cohort? (corresponds to 1 probe ILMN_1754507)
+
+```{r}
+# filter for IRF4 expression (with patient information)
+IRF4.expr <- filter(expr.avg.sig_genes, expr.avg.sig_genes$gene == "IRF4")
+
+# remove patients that do not have exomes
+exomes.ids <- read.table("/Volumes/shung/projects/PMBCL_exomes/data/res_id_to_PA_id.txt", sep = "\t", header = TRUE)
+colnames(IRF4.expr) <- c("res_id", "gene", "expr")
+# map PA ids to expression data
+IRF4.expr <- merge(IRF4.expr, exomes.ids, by = "res_id")
+
+# plot expression for each patient
+p <- ggplot(IRF4.expr, aes(x=res_id, y=expr)) + 
+  geom_point() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5)) +
+  ylab("log2 normalized expression") +
+  xlab("") + ylim(0, 14)
 ```
 
 ## Differential expression analysis - mutated vs. non-mutated patients for significant genes
