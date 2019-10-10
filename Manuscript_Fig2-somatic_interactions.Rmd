@@ -62,6 +62,23 @@ laml.titv = titv(maf = mutations.maf, plot = FALSE, useSyn = FALSE)
 plotTiTv(res = laml.titv)
 ```
 
+IRF4 query - what are the mutation interactions with PRMD1?
+
+```{r}
+library(maftools)
+
+mutations.df <- read.table("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/snv_indels-final_pooledN_and_matchedN.maf", sep = "\t", header = TRUE, fill = TRUE)
+
+mutations.df <- filter(mutations.df, mutations.df$Hugo_Symbol == "IRF4" | mutations.df$Hugo_Symbol == "PRDM1")
+
+mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/snv_indels-final_pooledN_and_matchedN.maf")
+
+oncoplot(maf = mutations.maf, genes = c("IRF4", "PRDM1"), 
+         removeNonMutated = FALSE, 
+         showTumorSampleBarcodes = TRUE, SampleNamefontSize = 0.5,
+         showTitle = FALSE)
+```
+
 ## Find significant somatic interactions for GISTIC peaks
 
 ```{r}
