@@ -142,11 +142,11 @@ mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analys
 mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/mutation_summary-paired_and_unpaired_with_UTRs.maf", clinicalData = clinData.df, vc_nonSyn = c("Frame_Shift_Del", "Frame_Shift_Ins", "Splice_Site", "Translation_Start_Site","Nonsense_Mutation", "Nonstop_Mutation", "In_Frame_Del","In_Frame_Ins", "Missense_Mutation", "3'UTR", "5'UTR"))
 
 # significant mutations plus IRF (use this mutation list for highlighting IRF pathway genes or overlaying CN)
-#mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/maftools/paired_and_unpaired.snvs_and_indels.sig_genes_v3.hugo_gene.AF_filtered.gene_filtered+IRF1.maf", 
-#                          clinicalData = clinData.df,
-#                          gisticAllLesionsFile = "/Volumes/shung/projects/PMBCL_exomes/gistic/output/drop_low_coverage-filtered_949-arm_peel-threshold_0.3-fdr_0.05-max_seg_1000-FINAL_FINAL_FINAL/gistic_segments.all_lesions.conf_90.txt", 
-#                          gisticAmpGenesFile = "/Volumes/shung/projects/PMBCL_exomes/gistic/output/drop_low_coverage-filtered_949-arm_peel-threshold_0.3-fdr_0.05-max_seg_1000-FINAL_FINAL_FINAL/gistic_segments.amp_genes.conf_90.txt", 
-#                          gisticDelGenesFile = "/Volumes/shung/projects/PMBCL_exomes/gistic/output/drop_low_coverage-filtered_949-arm_peel-threshold_0.3-fdr_0.05-max_seg_1000-FINAL_FINAL_FINAL/gistic_segments.del_genes.conf_90.txt")
+mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/maftools/paired_and_unpaired.snvs_and_indels.sig_genes_v3.hugo_gene.AF_filtered.gene_filtered+IRF1.maf", 
+                          clinicalData = clinData.df,
+                          gisticAllLesionsFile = "/Volumes/shung/projects/PMBCL_exomes/gistic/output/drop_low_coverage-filtered_949-arm_peel-threshold_0.3-fdr_0.05-max_seg_1000-FINAL_FINAL_FINAL/gistic_segments.all_lesions.conf_90.txt", 
+                          gisticAmpGenesFile = "/Volumes/shung/projects/PMBCL_exomes/gistic/output/drop_low_coverage-filtered_949-arm_peel-threshold_0.3-fdr_0.05-max_seg_1000-FINAL_FINAL_FINAL/gistic_segments.amp_genes.conf_90.txt", 
+                          gisticDelGenesFile = "/Volumes/shung/projects/PMBCL_exomes/gistic/output/drop_low_coverage-filtered_949-arm_peel-threshold_0.3-fdr_0.05-max_seg_1000-FINAL_FINAL_FINAL/gistic_segments.del_genes.conf_90.txt")
 
 sig.genes <- c("SOCS1", "ITPKB", "STAT6", "GNA13", "NFKBIE", "PTPN1", "ZNF217", "IL4R", "ACTB", "HIST1H3D", "CD58", "IRF8", "SGPP1", "TNFAIP3", "GCSAM", "JUNB", "ZFP36L1", "RGS1", "HIST1H2BC", "HIST1H1C", "JAK1", "MS4A1", "SRSF1", "HIST1H1B", "EZH2", "IFNL3", "GDF11", "KLF9", "IL1RAPL2", "SERPINB3", "IGLJ2", "VMP1", "MYC", "LHFPL3", "TSPAN19", "IRF2BP2", "DDX3X", "CIITA", "IRF4", "CXCR5", "EPHA7", "IL13RA1", "CISH", "SPINK1", "TRAF3", "HIST1H4E", "HIST1H4J", "MAGEC2", "IRX2", "FPGT")
 
@@ -179,8 +179,11 @@ oncoplot(maf = mutations.maf, genes = c("TLR2", "TLR4", "TLR5", "MYD88", "RELA",
 oncoplot(maf = mutations.maf, genes = c("TLR2", "TLR4", "TLR5", "MYD88", "RELA", "NFKB1", "TRAM1", "TICAM1", "TRAF6", "IRAK1", "IRAK4", "JAK2", "STAT1", "BCL6", "CD40", "IRF2BP2", "IRF8", "IRF4", "IRF1"), drawColBar = FALSE)
 
 # IRF family members - for some reason oncoplot does not want to plot genes that have a UTR mutation (but will plot them if that patient has another type of non-UTR mutation) - perhaps try to reduce the maf to just the genes of interest, and add parameter removeNotMutatedGenes to TRUE...
-oncoplot(maf = mutations.maf, 
-         genes = c("IRF1", "IRF2BP2", "IRF4", "IRF8"), drawColBar = FALSE)
+oncoplot(maf = mutations.maf, genes = c("IRF1", "IRF2BP2", "IRF4", "IRF8"), 
+         drawColBar = FALSE, showTitle = FALSE, fontSize = 1)
+
+#legendFontSize = 1.5
+
 oncoplot(maf = mutations.maf, 
          genes = c("IRF1", "IRF2", "IRF2BP2", "IRF3", "IRF4", "IRF7", "IRF8", "IRF9"), drawColBar = FALSE)
 oncoplot(maf = mutations.maf, 
@@ -286,7 +289,7 @@ mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_in
 # ALL mutations *including* UTR mutations (and all genes)
 mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/snv_indel_analysis/maf/mutation_summary-paired_and_unpaired_with_UTRs.maf", vc_nonSyn = c("Frame_Shift_Del", "Frame_Shift_Ins", "Splice_Site", "Translation_Start_Site","Nonsense_Mutation", "Nonstop_Mutation", "In_Frame_Del","In_Frame_Ins", "Missense_Mutation", "3'UTR", "5'UTR"))
 
-mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/maftools/paired_and_unpaired.snvs_and_indels.sig_genes_v3.hugo_gene.AF_filtered.gene_filtered+IRF1_AA_Change.maf")
+#mutations.maf <- read.maf("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/maftools/paired_and_unpaired.snvs_and_indels.sig_genes_v3.hugo_gene.AF_filtered.gene_filtered+IRF1_AA_Change.maf")
 
 sig.genes <- c("SOCS1", "ITPKB", "STAT6", "GNA13", "NFKBIE", "PTPN1", "ZNF217", "IL4R", "ACTB", "HIST1H3D", "CD58", "IRF8", "SGPP1", "TNFAIP3", "JUNB", "ZFP36L1", "RGS1", "HIST1H2BC", "HIST1H1C", "JAK1", "MS4A1", "SRSF1", "HIST1H1B", "EZH2", "GDF11", "KLF9", "IL1RAPL2", "SERPINB3", "VMP1", "MYC", "LHFPL3", "TSPAN19", "IRF2BP2", "DDX3X", "CIITA", "IRF4", "CXCR5", "EPHA7", "IL13RA1", "CISH", "SPINK1", "TRAF3", "HIST1H4E", "HIST1H4J", "MAGEC2", "IRX2", "FPGT", "ALX1")
 
@@ -319,6 +322,34 @@ GNA13.lpop <- lollipopPlot(maf = mutations.maf,
                           )
 
 # lollipop plots for genes of interest: TBL1XR1, genes in the IRF pathway
+
+
+# lollipops for IRF pathway genes
+lollipopPlot(maf = mutations.maf, gene = "IRF1", showMutationRate = TRUE, 
+             domainLabelSize = 1.6, legendTxtSize = 1.6,titleSize = c(1.6,1), 
+             defaultYaxis = TRUE, pointSize = 3,
+             cBioPortal = TRUE)
+  #labelPos = c(27, 67, 68)
+
+lollipopPlot(maf = mutations.maf, gene = "IRF2BP2", showMutationRate = TRUE, 
+             domainLabelSize = 1.6, legendTxtSize = 1, titleSize = c(1.6,1), 
+             defaultYaxis = TRUE, pointSize = 3,showDomainLabel = FALSE,
+             cBioPortal = TRUE)
+
+
+lollipopPlot(maf = mutations.maf, gene = "IRF4", showMutationRate = TRUE, 
+             domainColors = c(RColorBrewer::brewer.pal(8, name = "Set2"),
+                  RColorBrewer::brewer.pal(12, name = "Set2"),
+                  RColorBrewer::brewer.pal(8, name = "Set2")),
+             domainLabelSize = 1.6, legendTxtSize = 1.6, titleSize = c(1.6,1), 
+             defaultYaxis = TRUE, pointSize = 3,
+             cBioPortal = TRUE)
+
+lollipopPlot(maf = mutations.maf, gene = "IRF8", showMutationRate = TRUE, 
+             domainLabelSize = 1.6, legendTxtSize = 1.6, titleSize = c(1.6,1), 
+             defaultYaxis = TRUE, pointSize = 3,
+             cBioPortal = TRUE)
+
 
 ```
 
