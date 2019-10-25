@@ -69,6 +69,23 @@ panelA.pmbcl_V_dlbcl <- ggplot(data=freq.data.pmbcl_V_dlbcl, aes(x = gene, y = p
                     labels = c("Our study (n=94)",
                                "Reddy et al. (n=985)"),
                     name = "")
+
+## customized version for CCRC2019 rapid fire presentation
+ccrc.pmbcl_V_dlbcl <- ggplot(data=freq.data.pmbcl_V_dlbcl, aes(x = gene, y = proportion, fill=dataset)) +
+  geom_bar(stat="identity", position=position_dodge(), width = 0.8) +
+  ylab("") + xlab("") +
+  theme_bw() +
+  theme(legend.position="bottom") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  theme(axis.title.x=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank()) + 
+  theme(axis.text.y  = element_text(size=14), 
+        axis.title.y = element_text(size = 18), 
+        legend.text = element_text(size=14), 
+        plot.margin = unit(c(1,1,1,1), "cm")) +
+  scale_fill_manual(values = c("steelblue4","darkolivegreen3"),
+                    name = "") +
+  theme(legend.position = "none")
+
 ```
 
 ## B) Frequency plot comparing our dataset (all samples) to two DLBCL datasets (Reddy and Shipp)
@@ -116,6 +133,31 @@ panelB.dlbcl_V_dlbcl <- ggplot(data=freq.data, aes(x = gene, y = proportion, fil
 
 # for version 1, use this ordering for fill colours: 
 # scale_fill_manual(values = c("steelblue4", "firebrick1", "orange"),
+
+## customized version for CCRC2019
+freq.data$gene <- factor(freq.data$gene, levels = freq.data$gene[order(freq.data.wide$`Our study (n=94)`)])
+
+ccrc.dlbcl_V_dlbcl <- ggplot(data=freq.data, aes(x = gene, y = proportion, fill=dataset)) +
+  geom_bar(stat="identity", position=position_dodge(), width = 0.8) +
+  ylab("Cases mutated (%)") + xlab("") +
+  theme_bw() +
+  theme(legend.position="bottom") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size=14, vjust=0.5, face = "italic"),
+        axis.text.y  = element_text(size=14), 
+        axis.title.x = element_text(size = 18), 
+        axis.title.y = element_text(size = 18), 
+        legend.text = element_text(size=14), 
+        plot.margin = unit(c(1,1,1,1), "cm")) +
+  scale_fill_manual(values = c("darkseagreen3", "steelblue4", "darkseagreen2"),
+                    breaks = c("Our study (n=94)", 
+                               "Reddy et al. (n=1001)",
+                               "Chapuy, Shipp (n=304)"),
+                    labels = c("Our study (n=94)",
+                               "Reddy et al. (n=1001)",
+                               "Chapuy, Shipp (n=304)"),
+                    name = "") +
+  theme(axis.title.x=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank()) + 
+  theme(legend.position = "none")
 
 ```
 
