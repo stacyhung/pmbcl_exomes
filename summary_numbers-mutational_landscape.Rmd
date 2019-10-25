@@ -357,7 +357,26 @@ bp <- data.df %>%
   ggplot(aes(x = "", y = num_mutations, fill = variant_class)) +
   geom_bar(width = 1, stat = "identity")
 
-pie <- bp + coord_polar("y", start = 0) + scale_fill_brewer(palette="Set3") + ylab("") + xlab("")
+pie <- bp + coord_polar("y", start = 0) + scale_fill_brewer(name = "", palette="Set3") + ylab("") + xlab("")
+
+# donut chart
+
+# Compute percentages
+data.df$fraction = data.df$num_mutations / sum(data.df$num_mutations)
+
+# Compute the cumulative percentages (top of each rectangle)
+data.df$ymax = cumsum(data.df$fraction)
+
+# Compute the bottom of each rectangle
+data.df$ymin = c(0, head(data.df$ymax, n=-1))
+
+# create the plot
+donut <- ggplot(data.df, aes(ymax=ymax, ymin=ymin, xmax=4, xmin=3, fill=variant_class)) + # xmax and xmin - position of bars
+     geom_rect() +
+     theme_void() + # white background
+     coord_polar(theta="y") + # turn it into a circle plot
+     xlim(c(2, 4)) + # determines the thickness of the circle plot
+     scale_fill_brewer(name = "", palette="Set3") # change colour theme
 
 ```
 
