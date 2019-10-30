@@ -1,0 +1,96 @@
+---
+title: "Clinical characteristics"
+author: "Stacy Hung"
+date: "May 24, 2018"
+output: html_document
+---
+
+This script is for creating the summary of clinical characteristics for the PMBCL exome dataset.
+
+## Load and dataset
+
+```{r}
+meta_data <- read.table("/Volumes/shung/projects/PMBCL_exomes/data/from_DaveTwa/meta_data_DTwa_updated.txt", sep="\t", header=TRUE, fill = TRUE)
+
+# some fields (e.g. bone marrow transplant, constitutional "B" symptoms) need to be taken from an old dataset since they weren't included in the latest dataset
+meta_data.old <- read.table("/Volumes/shung/projects/PMBCL_exomes/data/from_DaveTwa/meta_data_DTwa.txt", sep="\t", header=TRUE, fill = TRUE)
+```
+
+
+```{r}
+# EBV-positive status (1 = yes, 0 = no)
+table(meta_data$eberish)
+
+# which case(s) are EBV-positive?
+subset(meta_data, meta_data$eberish == 1)
+```
+
+## What is the distribution of clinical features for this cohort? Add a "missing data" category if applicable
+
+```{r}
+# Age (years) - median and range
+median.age <- median(meta_data$AGE, na.rm = TRUE)
+range.age <- range(meta_data$AGE, na.rm = TRUE)
+
+# Sex - male vs. female
+gender.counts <- table(meta_data$SEX)
+male.percent <- 40/(54+40)
+female.percent <- 1 - male.percent
+
+# Ann Arbor stage (% for stages 1, 2, 3, and 4)
+stage.counts <- as.data.frame(table(meta_data$STAGE))
+
+stage1.counts <- unique(stage.counts[grep("1", stage.counts$Var1),])
+stage2.counts <- unique(stage.counts[grep("2", stage.counts$Var1),])
+stage3.counts <- unique(stage.counts[grep("3", stage.counts$Var1),])
+stage4.counts <- unique(stage.counts[grep("4", stage.counts$Var1),])
+missing.counts <- unique(stage.counts[!grepl("[1-4]", stage.counts$Var1),])
+
+stage1.percent <- sum(stage1.counts$Freq) / sum(stage.counts$Freq)
+stage2.percent <- sum(stage2.counts$Freq) / sum(stage.counts$Freq)
+stage3.percent <- sum(stage3.counts$Freq) / sum(stage.counts$Freq)
+stage4.percent <- sum(stage4.counts$Freq) / sum(stage.counts$Freq)
+missing.percent <- sum(missing.counts$Freq) / sum(stage.counts$Freq)
+
+# International Prognostic Index (IPI) for 0, 1, 2, 3, 4, and 5
+ipi.counts <- as.data.frame(table(meta_data$IPI))
+
+ipi0.counts <- unique(ipi.counts[grepl("^0", ipi.counts$Var1),])
+ipi1.counts <- unique(ipi.counts[grepl("^1", ipi.counts$Var1),])
+ipi2.counts <- unique(ipi.counts[grepl("^2", ipi.counts$Var1),])
+ipi3.counts <- unique(ipi.counts[grepl("^3", ipi.counts$Var1),])
+ipi4.counts <- unique(ipi.counts[grepl("^4", ipi.counts$Var1),])
+ipi5.counts <- unique(ipi.counts[grepl("^5", ipi.counts$Var1),])
+missing.ipi.counts <- unique(ipi.counts[grep("-1", ipi.counts$Var1),])
+
+ipi0.percent <- sum(ipi0.counts$Freq) / sum(ipi.counts$Freq)
+ipi1.percent <- sum(ipi1.counts$Freq) / sum(ipi.counts$Freq)
+ipi2.percent <- sum(ipi2.counts$Freq) / sum(ipi.counts$Freq)
+ipi3.percent <- sum(ipi3.counts$Freq) / sum(ipi.counts$Freq)
+ipi4.percent <- sum(ipi4.counts$Freq) / sum(ipi.counts$Freq)
+ipi5.percent <- sum(ipi5.counts$Freq) / sum(ipi.counts$Freq)
+missing.ipi.percent <- sum(missing.ipi.counts$Freq) / sum(ipi.counts$Freq)
+
+# Bone marrow involvement (yes vs. no) - *0/1 values only available from old dataset
+bm.counts <- as.data.frame(table(meta_data$bmt.old))
+bm.no <- unique(bm.counts[grepl("^0", bm.counts$Var1),])
+bm.yes <- unique(bm.counts[grepl("^1", bm.counts$Var1),])
+bm.no.percent <- sum(bm.no$Freq) / sum(bm.counts$Freq)
+bm.yes.percent <- sum(bm.yes$Freq) / sum(bm.counts$Freq)
+
+# LDH elevation (yes vs. no) - *values are currently numeric
+
+# B-symptoms (yes vs. no)
+bsymptoms.counts <- as.data.frame(table(meta_data.old$const.sx))
+bs.no.counts <- unique(bsymptoms.counts[grepl("^0", bsymptoms.counts$Var1),])
+bs.yes.counts <- unique(bsymptoms.counts[grepl("^1", bsymptoms.counts$Var1),])
+bs.no.percent <- sum(bs.no.counts$Freq) / sum(bsymptoms.counts$Freq)
+bs.yes.percent <- sum(bs.yes.counts$Freq) / sum(bsymptoms.counts$Freq)
+
+# Rituximab-treated (yes vs. no)
+rchop.counts <- as.data.frame(table(meta_data$rchop.old))
+rchop.no.counts <- unique(rchop.counts[grepl("^0", rchop.counts$Var1),])
+rchop.yes.counts <- unique(rchop.counts[grepl("^1", rchop.counts$Var1),])
+rchop.no.percent <- sum(rchop.no.counts$Freq) / sum(rchop.counts$Freq)
+rchop.yes.percent <- sum(rchop.yes.counts$Freq) / sum(rchop.counts$Freq)
+```

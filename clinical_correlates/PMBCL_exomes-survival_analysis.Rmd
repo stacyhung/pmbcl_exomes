@@ -1,0 +1,258 @@
+---
+title: "Analysis of outcome correlations for PMBCL exomes"
+author: "Stacy Hung"
+date: "September 15, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Survival analysis
+
+The effect of various factors on OS TTP are examined within the context of the PMBCL exomes cohort:
+1. MutSigCV genes with a frequency of >= 10%
+2. Clinical parameters: Age, Gender, and IPI
+3. GISTIC amplifications / deletions
+
+Example questions that we can ask:
+- Do patient's age and fitness (IPI) significantly influence the outcome?
+- Is a patient's survival affected by mutations in signficant driver genes?
+
+Important terms:
+- Event: death or disease recurrence
+- "censored" observations (n>=0): patient withdrew from study, lost for follow-up or did not experience event before end of study; cases of non-information
+
+## Process our dataset so it can be used for Survival analysis
+```{r}
+mutations.sig <- read.table("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/maftools/mutsig_input.FINAL.maf", sep = "\t", header = TRUE)
+clinical.df <- read.table("/Volumes/shung/projects/PMBCL_exomes/survival_analysis/clinical_data-extracted_by_Clementine-20180912.txt", sep = "\t", fill = TRUE, header = TRUE)
+
+# binary table for whether or not a gene is mutated in a given patient
+mutations.short <- unique(mutations.sig[c("Hugo_Symbol", "Tumor_Sample_Barcode")])
+table.gene_by_patient.is_mutated <- table(mutations.short)
+
+write.table(table.gene_by_patient.is_mutated, "/Volumes/shung/projects/PMBCL_exomes/survival_analysis/table.gene_by_patient.is_mutated.txt", sep = "\t", quote = FALSE)
+
+# read back in the data with the two datasets merged
+data.df <- read.table("/Volumes/shung/projects/PMBCL_exomes/survival_analysis/clinical_data-with_mutations_in_sig_genes.txt", sep = "\t", fill = TRUE, header = TRUE, as.is = TRUE)
+
+# only look at rituximab-treated patients
+data.rit <- subset(data.df, data.df$RITUXIMAB == 1) # 61/94 patients
+```
+
+## Load all packages needed for Kaplan-Meier Method and Log-Rank Test
+
+```{r}
+library(survival)
+library(survminer)
+library(dplyr)
+library(gridExtra)
+```
+
+## Disease-specific surival (DSS)
+
+```{r}
+# plot survival curves based on mutated vs. non-mutated patients for each significant gene
+
+# Fit survival data using the Kaplan-Meier method
+surv_object <- Surv(time = data.rit$Disease.specific.survival..y.,
+                    event = data.rit$CODE_DSS)
+
+# does IPI split nicely into two groups?
+hist(data.rit$IPI)
+
+# No- use 0-1, 2-3, and 4-5 as categories
+data.rit <- data.rit %>%
+  mutate(IPI_group = ifelse(IPI >= 2, "high_intermediate", "low"))
+
+hist(data.rit$IPI_group)
+
+# pass survival data to survival function, and stratify curve based on treatment regimen
+#fit1 <- survfit(surv_object ~ EZH2, data = data.rit)
+fit1 <- survfit(surv_object ~ IPI_group, data = data.rit)
+summary(fit1)
+
+# visualize the corresponding survival curve
+ggsurvplot(fit1, data = data.rit, pval = TRUE)
+
+# Fit a Cox proportional hazards model
+fit.coxph <- coxph(surv_object ~ IPI + HIST1H3D,
+                   data = data.rit)
+fit.coxph <- coxph(surv_object ~ IPI + ACTB,
+                   data = data.rit)
+fit.coxph <- coxph(surv_object ~ IPI + ACTB + HIST1H3D,
+                   data = data.rit)
+fit.coxph <- coxph(surv_object ~ ACTB + HIST1H3D,
+                   data = data.rit)
+ggforest(fit.coxph, data = data.rit)
+
+
+# now for all genes:
+genes = c("SOCS1", "ITPKB", "STAT6", "GNA13", "NFKBIE", "PTPN1", "ZNF217", "IL4R", "ACTB", "HIST1H3D", "CD58", "IRF8", "SGPP1", "TNFAIP3", "GCSAM", "JUNB", "ZFP36L1", "RGS1", "HIST1H2BC", "HIST1H1C", "JAK1", "MS4A1", "SRSF1", "HIST1H1B", "EZH2", "IFNL3", "GDF11", "KLF9", "IL1RAPL2", "SERPINB3", "VMP1", "MYC", "LHFPL3", "TSPAN19", "IRF2BP2", "DDX3X", "CIITA", "IRF4", "CXCR5", "EPHA7", "IL13RA1", "CISH", "SPINK1", "TRAF3", "HIST1H4E", "HIST1H4J", "MAGEC2", "IRX2", "FPGT")
+
+#km.dss.plots <- vector('list', length(genes))
+fits <- vector('list', length(genes)) # list of survfit objects
+legend <- vector('list', length(genes))
+
+for (i in seq_along(genes)) {
+  # approach 1
+  modform <- as.formula(paste("surv_object", genes[i], sep = " ~ "))
+                               substitute(survfit(modform, data = data.rit), list(modform = modform))
+  fits[[i]] <- eval(substitute(survfit(modform, data = data.rit), list(modform = modform)))
+  legend[i] <- genes[i]
+  
+  # original approach
+  #fit <- survfit(surv_object ~ factor(genes[i]), data = data.rit)
+  #summary(surv_object.dss[i])
+  # visualize the corresponding survival curve
+  #km.dss.plots[[i]] <- ggsurvplot(fit, data = data.rit, pval = TRUE)
+}
+ggsurvplot(fits[i], data.rit, pval = TRUE)
+ggsurvplot_list(fits, data.rit, legend.title = legend)
+
+# plot genes that have a signficant difference in survival
+NFKBIE_INDEX <- 5
+IL4R_INDEX <- 8
+ACTB_INDEX <- 9
+HIST1H3D_INDEX <- 10
+
+ggsurvplot(fits[NFKBIE_INDEX], data.rit, pval = TRUE, conf.int = TRUE, pval.method = TRUE, risk.table = TRUE, cumevents = TRUE, tables.height = 0.2)
+
+ggsurvplot(fits[ACTB_INDEX], data.rit, pval = TRUE, conf.int = TRUE, pval.method = TRUE, risk.table = TRUE, cumevents = TRUE, tables.height = 0.2)
+
+ggsurvplot(fits[HIST1H3D_INDEX], data.rit, pval = TRUE, conf.int = TRUE, pval.method = TRUE, risk.table = TRUE, cumevents = TRUE, tables.height = 0.2)
+
+ggsurvplot(fits[IL4R_INDEX], data.rit, pval = TRUE, conf.int = TRUE, pval.method = TRUE, risk.table = TRUE, cumevents = TRUE, tables.height = 0.2)
+```
+
+## Time-to-progression TTP
+
+```{r}
+# plot survival curves based on mutated vs. non-mutated patients for each significant gene
+
+# Fit survival data using the Kaplan-Meier method
+surv_object <- Surv(time = data.rit$Time.to.progression..y.,
+                    event = data.rit$CODE_TTP)
+
+# pass survival data to survival function, and stratify curve based on treatment regimen
+fit1 <- survfit(surv_object ~ EZH2, data = data.rit)
+summary(fit1)
+
+# visualize the corresponding survival curve
+ggsurvplot(fit1, data = data.rit, pval = TRUE)
+
+# now for all genes:
+genes = c("SOCS1", "ITPKB", "STAT6", "GNA13", "NFKBIE", "PTPN1", "ZNF217", "IL4R", "ACTB", "HIST1H3D", "CD58", "IRF8", "SGPP1", "TNFAIP3", "GCSAM", "JUNB", "ZFP36L1", "RGS1", "HIST1H2BC", "HIST1H1C", "JAK1", "MS4A1", "SRSF1", "HIST1H1B", "EZH2", "IFNL3", "GDF11", "KLF9", "IL1RAPL2", "SERPINB3", "VMP1", "MYC", "LHFPL3", "TSPAN19", "IRF2BP2", "DDX3X", "CIITA", "IRF4", "CXCR5", "EPHA7", "IL13RA1", "CISH", "SPINK1", "TRAF3", "HIST1H4E", "HIST1H4J", "MAGEC2", "IRX2", "FPGT")
+
+#km.dss.plots <- vector('list', length(genes))
+fits <- vector('list', length(genes)) # list of survfit objects
+legend <- vector('list', length(genes))
+
+for (i in seq_along(genes)) {
+  # approach 1
+  modform <- as.formula(paste("surv_object", genes[i], sep = " ~ "))
+                               substitute(survfit(modform, data = data.rit), list(modform = modform))
+  fits[[i]] <- eval(substitute(survfit(modform, data = data.rit), list(modform = modform)))
+  legend[i] <- genes[i]
+  
+  # original approach
+  #fit <- survfit(surv_object ~ factor(genes[i]), data = data.rit)
+  #summary(surv_object.dss[i])
+  # visualize the corresponding survival curve
+  #km.dss.plots[[i]] <- ggsurvplot(fit, data = data.rit, pval = TRUE)
+}
+ggsurvplot(fits[i], data.rit, pval = TRUE)
+ggsurvplot_list(fits, data.rit, legend.title = legend)
+
+NFKBIE_INDEX <- 5
+IL4R_INDEX <- 8
+ACTB_INDEX <- 9
+HIST1H3D_INDEX <- 10
+ITPKB_INDEX <- 2
+
+# no longer significant in TTP (but were found to be signficant in DSS)
+ggsurvplot(fits[NFKBIE_INDEX], data.rit, pval = TRUE)
+ggsurvplot(fits[ACTB_INDEX], data.rit, pval = TRUE)
+ggsurvplot(fits[HIST1H3D_INDEX], data.rit, pval = TRUE)
+
+ggsurvplot(fits[ITPKB_INDEX], data.rit, pval = TRUE, conf.int = TRUE, pval.method = TRUE, risk.table = TRUE, cumevents = TRUE, tables.height = 0.2)
+
+ggsurvplot(fits[IL4R_INDEX], data.rit, pval = TRUE, conf.int = TRUE, pval.method = TRUE, risk.table = TRUE, cumevents = TRUE, tables.height = 0.2)
+
+```
+
+## Cox Proportional Hazards Models
+
+```{r}
+
+```
+
+## Implementation of Survival analysis in R (pilot using real data for ovarian cancer)
+
+columns of interest:
+
+futime : time patients were tracked until they either died or were lost to follow-up (*survival times - response var)
+fustat : whether patients were censored or not
+age 
+rx : treatment group assigned - patient recieves 1 or 2 therapy regimens
+resid.ds : presence of residual disease
+ecog.ps : performance status (ECOG)
+
+```{r}
+library(survival)
+library(survminer)
+library(dplyr)
+
+# Import dataset
+data(ovarian)
+glimpse(ovarian)
+
+# if we want to break up cohort into age categories, we need to know the distribution:
+# first, dichotomize age and change data labels
+ovarian$rx <- factor(ovarian$rx,
+                     levels = c("1", "2"),
+                     labels = c("A", "B"))
+
+ovarian$resid.ds <- factor(ovarian$resid.ds,
+                           levels = c("1", "2"),
+                           labels = c("no", "yes"))
+
+ovarian$ecog.ps <- factor(ovarian$ecog.ps,
+                          levels = c("1", "2"),
+                          labels = c("good", "bad"))
+
+hist(ovarian$age)
+
+ovarian <- ovarian %>% mutate(age_group = ifelse(age >=50, "old", "young"))
+ovarian$age_group <- factor(ovarian$age_group)
+
+# Fit survival data using the Kaplan-Meier method
+surv_object <- Surv(time = ovarian$futime,
+                    event = ovarian$fustat)
+
+# pass survival data to survival function, and stratify curve based on treatment regimen
+fit1 <- survfit(surv_object ~ rx, data = ovarian)
+summary(fit1)
+
+# visualize the corresponding survival curve
+ggsurvplot(fit1, data = ovarian, pval = TRUE)
+
+# by convention, vertical lines indicate censored data, their corresponding x values is the time at which the censoring occurred
+
+# survival did not differ significantly by treatment, but what about other variables?
+
+# examine predictive value of residual disease status
+fit2 <- survfit(surv_object ~ resid.ds, data = ovarian)
+ggsurvplot(fit2, data = ovarian, pval = TRUE)
+
+# Is there a systematic way to look at the different covariates? Cox proportional hazards models
+# Briefly, a HR > 1 indicates an increased risk of death if a specific condition is met by a patient; HR < 1, on the other hand, would indicate a decreased risk.
+
+# Fit a Cox proportional hazards model
+fit.coxph <- coxph(surv_object ~ rx + resid.ds + age_group + ecog.ps,
+                   data = ovarian)
+ggforest(fit.coxph, data = ovarian)
+
+```
