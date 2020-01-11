@@ -1,0 +1,403 @@
+---
+title: "Analysis of outcome correlations for PMBCL exomes"
+author: "Stacy Hung"
+date: "September 15, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Survival analysis
+
+The effect of various factors on OS TTP are examined within the context of the PMBCL exomes cohort:
+1. MutSigCV genes with a frequency of >= 10%
+2. Clinical parameters: Age, Gender, and IPI
+3. GISTIC amplifications / deletions
+
+Example questions that we can ask:
+- Do patient's age and fitness (IPI) significantly influence the outcome?
+- Is a patient's survival affected by mutations in signficant driver genes?
+
+Important terms:
+- Event: death or disease recurrence
+- "censored" observations (n>=0): patient withdrew from study, lost for follow-up or did not experience event before end of study; cases of non-information
+
+## Process our dataset so it can be used for Survival analysis
+```{r}
+mutations.sig <- read.table("/Volumes/shung/projects/PMBCL_exomes/Mutsig/mutsig_input/mutation_file/maftools/mutsig_input.FINAL.maf", sep = "\t", header = TRUE)
+clinical.df <- read.table("/Volumes/shung/projects/PMBCL_exomes/survival_analysis/clinical_data-extracted_by_Clementine-20180912.txt", sep = "\t", fill = TRUE, header = TRUE)
+
+# binary table for whether or not a gene is mutated in a given patient
+mutations.short <- unique(mutations.sig[c("Hugo_Symbol", "Tumor_Sample_Barcode")])
+table.gene_by_patient.is_mutated <- table(mutations.short)
+
+write.table(table.gene_by_patient.is_mutated, "/Volumes/shung/projects/PMBCL_exomes/survival_analysis/table.gene_by_patient.is_mutated.txt", sep = "\t", quote = FALSE)
+```
+
+```{r}
+# read back in the data with the two datasets merged
+data.df <- read.table("/Volumes/shung/projects/PMBCL_exomes/clinical_outcomes_analysis/survival_analysis/clinical_data-with_mutations_in_sig_genes.txt", sep = "\t", fill = TRUE, header = TRUE, as.is = TRUE)
+
+# only look at rituximab-treated patients
+data.rit <- subset(data.df, data.df$RITUXIMAB == 1) # 61/94 patients
+```
+
+## Load all packages needed for Kaplan-Meier Method and Log-Rank Test
+
+```{r}
+library(survival)
+library(survminer)
+library(dplyr)
+library(gridExtra)
+```
+
+## Disease-specific surival (DSS)
+
+```{r}
+# plot survival curves based on mutated vs. non-mutated patients for each significant gene
+
+# Fit survival data using the Kaplan-Meier method
+surv_object <- Surv(time = data.rit$Disease.specific.survival..y.,
+                    event = data.rit$CODE_DSS)
+
+# does IPI split nicely into two groups?
+hist(data.rit$IPI)
+
+# No- use 0-1, 2-3, and 4-5 as categories
+data.rit <- data.rit %>%
+  mutate(IPI_group = ifelse(IPI >= 2, "high_intermediate", "low"))
+
+# pass survival data to survival function, and stratify curve based on treatment regimen
+#fit1 <- survfit(surv_object ~ EZH2, data = data.rit)
+fit1 <- survfit(surv_object ~ IPI_group, data = data.rit)
+summary(fit1)
+
+# visualize the corresponding survival curve
+ggsurvplot(fit1, data = data.rit, pval = TRUE)
+
+# Fit a Cox proportional hazards model
+fit.coxph <- coxph(surv_object ~ IPI + HIST1H3D,
+                   data = data.rit)
+fit.coxph <- coxph(surv_object ~ IPI + ACTB,
+                   data = data.rit)
+fit.coxph <- coxph(surv_object ~ IPI + ACTB + HIST1H3D,
+                   data = data.rit)
+fit.coxph <- coxph(surv_object ~ ACTB + HIST1H3D,
+                   data = data.rit)
+ggforest(fit.coxph, data = data.rit)
+
+
+# now for all genes:
+genes = c("SOCS1", "ITPKB", "STAT6", "GNA13", "NFKBIE", "PTPN1", "ZNF217", "IL4R", "ACTB", "HIST1H3D", "CD58", "IRF8", "SGPP1", "TNFAIP3", "GCSAM", "JUNB", "ZFP36L1", "RGS1", "HIST1H2BC", "HIST1H1C", "JAK1", "MS4A1", "SRSF1", "HIST1H1B", "EZH2", "IFNL3", "GDF11", "KLF9", "IL1RAPL2", "SERPINB3", "VMP1", "MYC", "LHFPL3", "TSPAN19", "IRF2BP2", "DDX3X", "CIITA", "IRF4", "CXCR5", "EPHA7", "IL13RA1", "CISH", "SPINK1", "TRAF3", "HIST1H4E", "HIST1H4J", "MAGEC2", "IRX2", "FPGT")
+
+#km.dss.plots <- vector('list', length(genes))
+fits <- vector('list', length(genes)) # list of survfit objects
+legend <- vector('list', length(genes))
+
+for (i in seq_along(genes)) {
+  # approach 1
+  modform <- as.formula(paste("surv_object", genes[i], sep = " ~ "))
+                               substitute(survfit(modform, data = data.rit), list(modform = modform))
+  fits[[i]] <- eval(substitute(survfit(modform, data = data.rit), list(modform = modform)))
+  legend[i] <- genes[i]
+  
+  # original approach
+  #fit <- survfit(surv_object ~ factor(genes[i]), data = data.rit)
+  #summary(surv_object.dss[i])
+  # visualize the corresponding survival curve
+  #km.dss.plots[[i]] <- ggsurvplot(fit, data = data.rit, pval = TRUE)
+}
+ggsurvplot(fits[i], data.rit, pval = TRUE)
+ggsurvplot_list(fits, data.rit, legend.title = legend)
+
+# plot genes that have a signficant difference in survival
+NFKBIE_INDEX <- 5
+IL4R_INDEX <- 8
+ACTB_INDEX <- 9
+HIST1H3D_INDEX <- 10
+
+ggsurvplot(fits[NFKBIE_INDEX], data.rit, pval = TRUE, conf.int = TRUE, pval.method = TRUE, risk.table = TRUE, cumevents = TRUE, tables.height = 0.2)
+
+ggsurvplot(fits[ACTB_INDEX], data.rit, pval = TRUE, conf.int = TRUE, pval.method = TRUE, risk.table = TRUE, cumevents = TRUE, tables.height = 0.2)
+
+ggsurvplot(fits[HIST1H3D_INDEX], data.rit, pval = TRUE, conf.int = TRUE, pval.method = TRUE, risk.table = TRUE, cumevents = TRUE, tables.height = 0.2)
+
+ggsurvplot(fits[IL4R_INDEX], data.rit, pval = TRUE, conf.int = TRUE, pval.method = TRUE, risk.table = TRUE, cumevents = TRUE, tables.height = 0.2)
+```
+
+## Time-to-progression TTP
+
+```{r}
+# plot survival curves based on mutated vs. non-mutated patients for each significant gene
+
+# Fit survival data using the Kaplan-Meier method
+surv_object <- Surv(time = data.rit$Time.to.progression..y.,
+                    event = data.rit$CODE_TTP)
+
+# pass survival data to survival function, and stratify curve based on treatment regimen
+fit1 <- survfit(surv_object ~ EZH2, data = data.rit)
+summary(fit1)
+
+# visualize the corresponding survival curve
+ggsurvplot(fit1, data = data.rit, pval = TRUE)
+
+# now for all genes:
+genes = c("SOCS1", "ITPKB", "STAT6", "GNA13", "NFKBIE", "PTPN1", "ZNF217", "IL4R", "ACTB", "HIST1H3D", "CD58", "IRF8", "SGPP1", "TNFAIP3", "GCSAM", "JUNB", "ZFP36L1", "RGS1", "HIST1H2BC", "HIST1H1C", "JAK1", "MS4A1", "SRSF1", "HIST1H1B", "EZH2", "IFNL3", "GDF11", "KLF9", "IL1RAPL2", "SERPINB3", "VMP1", "MYC", "LHFPL3", "TSPAN19", "IRF2BP2", "DDX3X", "CIITA", "IRF4", "CXCR5", "EPHA7", "IL13RA1", "CISH", "SPINK1", "TRAF3", "HIST1H4E", "HIST1H4J", "MAGEC2", "IRX2", "FPGT")
+
+#km.dss.plots <- vector('list', length(genes))
+fits <- vector('list', length(genes)) # list of survfit objects
+legend <- vector('list', length(genes))
+
+for (i in seq_along(genes)) {
+  # approach 1
+  modform <- as.formula(paste("surv_object", genes[i], sep = " ~ "))
+                               substitute(survfit(modform, data = data.rit), list(modform = modform))
+  fits[[i]] <- eval(substitute(survfit(modform, data = data.rit), list(modform = modform)))
+  legend[i] <- genes[i]
+  
+  # original approach
+  #fit <- survfit(surv_object ~ factor(genes[i]), data = data.rit)
+  #summary(surv_object.dss[i])
+  # visualize the corresponding survival curve
+  #km.dss.plots[[i]] <- ggsurvplot(fit, data = data.rit, pval = TRUE)
+}
+ggsurvplot(fits[i], data.rit, pval = TRUE)
+ggsurvplot_list(fits, data.rit, legend.title = legend)
+
+NFKBIE_INDEX <- 5
+IL4R_INDEX <- 8
+ACTB_INDEX <- 9
+HIST1H3D_INDEX <- 10
+ITPKB_INDEX <- 2
+
+# no longer significant in TTP (but were found to be signficant in DSS)
+ggsurvplot(fits[NFKBIE_INDEX], data.rit, pval = TRUE)
+ggsurvplot(fits[ACTB_INDEX], data.rit, pval = TRUE)
+ggsurvplot(fits[HIST1H3D_INDEX], data.rit, pval = TRUE)
+
+ggsurvplot(fits[ITPKB_INDEX], data.rit, pval = TRUE, conf.int = TRUE, pval.method = TRUE, risk.table = TRUE, cumevents = TRUE, tables.height = 0.2)
+
+ggsurvplot(fits[IL4R_INDEX], data.rit, pval = TRUE, conf.int = TRUE, pval.method = TRUE, risk.table = TRUE, cumevents = TRUE, tables.height = 0.2)
+
+```
+
+## Implementation of Ridge, Lasso and Elastic-Net Regression
+
+Aided by StatQuest video: https://www.youtube.com/watch?v=ctmNq7FgbvI&feature=youtu.be
+
+```{r}
+library(glmnet)
+
+# from tutorial
+set.seed(42)
+
+# made up dataset of 1000 samples and 5000 parameters
+n <- 1000
+p <- 5000 
+real_p <- 15 # only 15 of 5000 will help to predict outcome (remaining parameters are just random noise)
+
+# create randomly generated data: 1000X5000 matrix (recall rnorm distribution generates a number from the normal distribution)
+x <- matrix(rnorm(n*p), nrow = n, ncol = p)
+
+# create vector of values, y, that we will predict with the data in x
+# essentially y is being generated from the first 15 columns of x with a little noise to make things interesting
+y <- apply(x[,1:real_p], 1, sum) + rnorm(n)
+
+# Now we want to use Ridge, Lasso, and Elastic-Net regression on the values in x to predict the values in y
+
+# first, we need to divide the data into training and testing data sets
+
+# for the training dataset, choose a random sampling of 2/3 of the data; representing row indices
+train_rows <- sample(1:n, 0.66*n)
+x.train <- x[train_rows, ] # create training dataset
+x.test <- x[-train_rows, ] # create testing dataset
+
+y.train <- y[train_rows]
+y.test <- y[-train_rows]
+
+# Start with Ridge regression
+
+# cv.glmnet ("cv" = apply cross-validation to obtain optimal values for lambda; by default 10-fold CV)
+# type.measure: set to mse (mean-squared error = sum of the squared residuals / sample size); set to deviance for logistic reg.
+# recall that glmnet only has a single lambda, and a single alpha; set alpha = 0 for ridge regression; alpha = 1 (default)
+# set family = guassian (linear regression); set to "binomial" if using logistic regression
+alpha0.fit <- cv.glmnet(x.train, y.train, type.measure = "mse", alpha = 0, family = "gaussian")
+
+# now use predict() to apply ridge regression model (alpha0.fit) to the testing data
+# s = size of penalty; use value `lambda.1se` (value of lambda from model resulting in simplest model [i.e. fewest non-zero parameters] and was within 1 standard error of lambda that had the smallest sum [`lambda.min`])
+alpha0.predicted <- predict(alpha0.fit, s = alpha0.fit$lambda.1se, newx = x.test)
+
+# now assess the performance by calculating the mean-squared error of the difference between true values (y.test) and predicted
+mean((y.test - alpha0.predicted)^2)
+
+# Now let's try Lasso Regression
+
+alpha1.fit <- cv.glmnet(x.train, y.train, type.measure = "mse", alpha = 1, family = "gaussian")
+alpha1.predicted <- predict(alpha1.fit, s = alpha1.fit$lambda.1se, newx = x.test)
+mean((y.test - alpha1.predicted)^2)
+# so far, lasso is better than ridge
+
+
+# Now let's try Elastic-Net Regression
+
+alpha0.5.fit <- cv.glmnet(x.train, y.train, type.measure = "mse", alpha = 0.5, family = "gaussian")
+alpha0.5.predicted <- predict(alpha0.5.fit, s = alpha0.5.fit$lambda.1se, newx = x.test)
+mean((y.test - alpha0.5.predicted)^2)
+# so far, it seems that lasso is the best tool; but we have only tried a single value for alpha
+
+# Let's try many alpha to make sure
+list.of.fits <- list()
+for (i in 0:10) {
+  fit.name <- paste0("alpha", i / 10)
+  list.of.fits[[fit.name]] <- cv.glmnet(x.train, y.train, type.measure = "mse", alpha = i/10, family = "gaussian")
+}
+# store the results
+results <- data.frame()
+for (i in 0:10) {
+  fit.name <- paste0("alpha", i / 10)
+  predicted <- predict(list.of.fits[[fit.name]], s = list.of.fits[[fit.name]]$lambda.1se, newx = x.test)
+  mse <- mean((y.test - predicted)^2)
+  temp <- data.frame(alpha = i / 10, mse = mse, fit.name = fit.name)
+  results <- rbind(results, temp)
+}
+
+```
+
+## Implementation of Cox model with cross-validation of Ridge, Lasso and Elastic-Net in mind 
+
+Specifically, we want to test different models to identify which genes to use and which model is the best - more specifically, we want to determine the best parameters to create a regularized cox regression model for our data.  We are going to use the Coxnet function from the glmnet package - this function fits the Cox Model regularized by an elastic-net penalty (can adjust to be lasso or ridge regression).
+
+```{r}
+library(survival)
+library(survminer)
+library(dplyr)
+```
+
+# general formula for computing a cox model
+#   coxph (formula, data, method)
+# where 
+#   formula = linear model with survival object as response variable (created using Surv())
+#   data = data frame containing the variables
+#   method = specify how to handle ties (default is "efron"; other options include "breslow" and "exact")
+
+```{r}
+# read in the survival data
+data.all <- read.table("/Volumes/shung/projects/PMBCL_exomes/clinical_outcomes_analysis/survival_analysis/clinical_data-with_mutations_in_sig_genes.txt", sep = "\t", fill = TRUE, header = TRUE, as.is = TRUE)
+
+# only look at rituximab-treated patients
+#data.rit <- subset(data.df, data.df$RITUXIMAB == 1) # 61/94 patients
+
+# How can we use the glmnet package for Cox regression?
+set.seed(10)
+
+# first create a data matrix containing only the relevant data: TTP, CODE_TTP, and all the covariates we want to look at
+data.min <- data.all[, c("Time.to.progression..y.", "CODE_TTP", "VMP1", "EZH2", "SOCS1", "HIST1H3D", "IRF8")]
+#cols.covariates <- colnames(data.all[, c(34:ncol(data.all)-1)])
+#data.min <- data.all[, c("Time.to.progression..y.", "CODE_TTP", cols.covariates)]
+
+# remove rows that have 0 values for TTP
+data.min <- filter(data.min, data.min$Time.to.progression..y. > 0)
+
+# split into training and testing datasets
+n <- nrow(data.min)
+train_rows <- sample(1:n, 0.8*n)
+data.train <- data.min[train_rows, ]
+data.test <- data.min[-train_rows, ]
+
+# create survival object that will be used for the model
+surv_object.train <- Surv(time = data.train$Time.to.progression..y., event = data.train$CODE_TTP)
+cox.fit <- glmnet(
+  x = as.matrix(data.train[, 3:ncol(data.train)]),
+  y = surv_object.train,
+  family = 'cox'
+)
+
+# cross-validate 
+
+## start with LASSO (alpha = 1) [model that is better at removing useless parameters]
+alpha1.cv.fit <- cv.glmnet(
+  x = as.matrix(data.train[, 3:ncol(data.train)]),
+  y = surv_object.train,
+  family = 'cox',
+  alpha = 1
+)
+alpha1.fit <- glmnet(
+  x = as.matrix(data.train[, 3:ncol(data.train)]),
+  y = surv_object.train,
+  family = 'cox',
+  alpha = 1
+)
+plot(alpha1.cv.fit)
+
+# get optimal value of lamdba
+alpha1.cv.fit$lambda.min
+
+# apply to testing dataset
+alpha1.predict <- predict(alpha1.cv.fit, s = alpha1.cv.fit$lambda.min, newx = as.matrix(data.test[, 3:ncol(data.test)]))
+
+# how much error do we see?
+surv_object.test <- Surv(time = data.test$Time.to.progression..y., event = data.test$CODE_TTP)
+mean((surv_object.test - alpha1.predict)^2)
+
+# let's find out which 2 covariates were selected with lambda.1se:
+coeff <- coef(alpha1.fit, s = alpha1.cv.fit$lambda.min)
+active.index <- which (coeff != 0)
+active.coeff <- coeff[active.index]
+
+active.index
+active.coeff
+
+## now try RIDGE (alpha = 0)
+
+alpha0.cv.fit <- cv.glmnet(
+  x = as.matrix(data.train[, 3:ncol(data.train)]),
+  y = surv_object.train,
+  family = 'cox',
+  alpha = 0
+)
+alpha0.fit <- glmnet(
+  x = as.matrix(data.train[, 3:ncol(data.train)]),
+  y = surv_object.train,
+  family = 'cox',
+  alpha = 0
+)
+plot(alpha0.cv.fit)
+
+# get optimal value of lamdba
+alpha0.cv.fit$lambda.min
+
+#alpha0.5.fit <- cv.glmnet(x.train, y.train, type.measure = "mse", alpha = 0.5, family = "gaussian")
+#alpha0.5.predicted <- predict(alpha0.5.fit, s = alpha0.5.fit$lambda.1se, newx = x.test)
+#mean((y.test - alpha0.5.predicted)^2)
+
+
+
+
+
+
+# Now let's try Elastic-Net Regression
+
+alpha0.5.fit <- cv.glmnet(x.train, y.train, type.measure = "mse", alpha = 0.5, family = "gaussian")
+alpha0.5.predicted <- predict(alpha0.5.fit, s = alpha0.5.fit$lambda.1se, newx = x.test)
+mean((y.test - alpha0.5.predicted)^2)
+# so far, it seems that lasso is the best tool; but we have only tried a single value for alpha
+
+# Let's try many alpha to make sure
+list.of.fits <- list()
+for (i in 0:10) {
+  fit.name <- paste0("alpha", i / 10)
+  list.of.fits[[fit.name]] <- cv.glmnet(x.train, y.train, type.measure = "mse", alpha = i/10, family = "gaussian")
+}
+# store the results
+results <- data.frame()
+for (i in 0:10) {
+  fit.name <- paste0("alpha", i / 10)
+  predicted <- predict(list.of.fits[[fit.name]], s = list.of.fits[[fit.name]]$lambda.1se, newx = x.test)
+  mse <- mean((y.test - predicted)^2)
+  temp <- data.frame(alpha = i / 10, mse = mse, fit.name = fit.name)
+  results <- rbind(results, temp)
+}
+```
+
